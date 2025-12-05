@@ -173,7 +173,8 @@ class CaiInstallGUI(ttk.Window):
         
         help_menu = ttk.Menu(menu_bar, tearoff=False)
         menu_bar.add_cascade(label="帮助", menu=help_menu)
-        help_menu.add_command(label="官方公告", command=lambda: webbrowser.open('https://docs.qq.com/doc/DTUp3Z2Fkd2pVRGtX?dver='))
+        help_menu.add_command(label="倒卖公告", command=lambda: webbrowser.open('https://docs.qq.com/doc/DTUp3Z2Fkd2pVRGtX?dver='))
+        help_menu.add_command(label="项目地址", command=lambda: webbrowser.open('https://github.com/WingChunWong/Cai-Installer-GUI'))
         help_menu.add_command(label="关于", command=self.show_about_dialog)
     
     def create_widgets(self):
@@ -275,10 +276,10 @@ class CaiInstallGUI(ttk.Window):
         button_frame = ttk.Frame(panel)
         button_frame.pack(fill=X, pady=(0, 5))
         
-        ttk.Button(button_frame, text="刷新", command=self.refresh_file_list, bootstyle="info").grid(row=0, column=0, padx=(0, 2), sticky=EW)
-        ttk.Button(button_frame, text="查看", command=self.view_selected_file, bootstyle="success").grid(row=0, column=1, padx=2, sticky=EW)
-        ttk.Button(button_frame, text="删除", command=self.delete_selected_file, bootstyle="danger").grid(row=0, column=2, padx=2, sticky=EW)
-        ttk.Button(button_frame, text="重启Steam", command=self.restart_steam, bootstyle="warning").grid(row=0, column=3, padx=(2, 0), sticky=EW)
+        ttk.Button(button_frame, text="🔄刷新", command=self.refresh_file_list, bootstyle="info").grid(row=0, column=0, padx=(0, 2), sticky=EW)
+        ttk.Button(button_frame, text="📝查看", command=self.view_selected_file, bootstyle="success").grid(row=0, column=1, padx=2, sticky=EW)
+        ttk.Button(button_frame, text="❌删除", command=self.delete_selected_file, bootstyle="danger").grid(row=0, column=2, padx=2, sticky=EW)
+        ttk.Button(button_frame, text="🔄重启Steam", command=self.restart_steam, bootstyle="warning").grid(row=0, column=3, padx=(2, 0), sticky=EW)
         
         for i in range(4):
             button_frame.columnconfigure(i, weight=1)
