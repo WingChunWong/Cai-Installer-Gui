@@ -1,4 +1,6 @@
-# cixGUI 二改版
+# Cai Installer Gui
+
+![Preview](imgs/image.png)
 
 本项目是基于 [pvzcxw/cixGUI](https://github.com/pvzcxw/cixGUI) 的二次开发版本。原项目因维护精力有限已停止更新，本改版旨在继续维护该工具，修复已知问题并增加新功能，为用户提供更稳定的使用体验。
 
