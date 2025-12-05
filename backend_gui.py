@@ -112,7 +112,8 @@ class GuiBackend:
     
     def gen_config_file(self):
         try:
-            with open("./config.json", mode="w", encoding="utf-8") as f:
+            config_path = app_dir / 'config.json'
+            with open(config_path, mode="w", encoding="utf-8") as f:
                 json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
             self.log.info('首次启动或配置重置，已生成config.json，请在"设置"中填写。')
             self.app_config = DEFAULT_CONFIG.copy()
@@ -121,7 +122,8 @@ class GuiBackend:
 
     def save_config(self):
         try:
-            with open("./config.json", mode="w", encoding="utf-8") as f:
+            config_path = app_dir / 'config.json'
+            with open(config_path, mode="w", encoding="utf-8") as f:
                 config_to_save = DEFAULT_CONFIG.copy()
                 config_to_save.update(self.app_config)
                 json.dump(config_to_save, f, indent=2, ensure_ascii=False)
@@ -550,6 +552,7 @@ class GuiBackend:
                 success = await self.process_github_repo(client, app_id, repo_val)
             
             if success:
+                
                 self.log.info(f"App ID: {app_id} 处理成功。")
                 success_count += 1
             else:

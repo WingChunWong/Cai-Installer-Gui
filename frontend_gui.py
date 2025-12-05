@@ -218,7 +218,7 @@ class CaiInstallGUI(ttk.Window):
                              ("Walftech", "walftech"),
                              ("GitHub - Auiowu/ManifestAutoUpdate", "Auiowu/ManifestAutoUpdate"),
                              ("GitHub - SteamAutoCracks/ManifestHub", "SteamAutoCracks/ManifestHub"),
-                             ("Walftech", "walftech")]
+                             ]
         self.repo_combobox = ttk.Combobox(tab1, state="readonly", values=[name for name, _ in self.repo_options])
         self.repo_combobox.pack(side=LEFT, fill=X, expand=True)
         self.repo_combobox.current(0)

@@ -1,2 +1,7 @@
 __pycache__/
 config.json
+frontend_gui.build/
+frontend_gui.dist/
+nuitka-crash-report.xml
+.venv/
+frontend_gui.onefile-build
