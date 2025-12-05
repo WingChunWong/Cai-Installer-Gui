@@ -1,6 +1,6 @@
 # Cai Installer Gui
 
-![Preview](imgs/image.png)
+![](imgs/image.png)
 
 本项目是基于 [pvzcxw/cixGUI](https://github.com/pvzcxw/cixGUI) 的二次开发版本。原项目因维护精力有限已停止更新，本改版旨在继续维护该工具，修复已知问题并增加新功能，为用户提供更稳定的使用体验。
 
@@ -25,6 +25,7 @@
 - Python 3.8+
 
 ### 安装步骤
+
 1. 克隆本项目源码：
    ```shell
    git clone https://github.com/WingChunWong/cixGUI.git  
@@ -42,6 +43,19 @@
    python frontend_gui.py
    ```
 
+4. 获取Github Personal Token
+
+具体步骤:
+1. 登录 GitHub：在浏览器中打开 github.com 并登录你的账户。
+2. 进入设置：点击页面右上角的个人资料照片，然后选择 Settings (设置)。
+3. 找到开发者设置：在左侧边栏中，找到并点击 Developer settings (开发者设置)。
+4. 选择 Classic Tokens：在左侧边栏的 "Personal access tokens" (个人访问令牌) 下，点击 Tokens (classic) (令牌(经典))。
+5. 生成新令牌：点击 Generate new token (生成新令牌)，然后选择 Generate new token (classic) (生成新令牌(经典))。
+6. 配置令牌信息：
+   1. Note (备注)：给你的令牌起一个描述性的名字（例如 "My CLI Token"）。
+   2. Expiration (到期时间)：选择令牌的过期时间（例如 30天, 90天或自定义）。
+   3. Select scopes (选择范围)：根据需要勾选权限。如果你要从命令行访问仓库，至少需要勾选 `repo` 及其子项。
+7. 生成并复制：点击 Generate token (生成令牌) 按钮。系统会立即显示你的令牌，立即复制这个字符串，因为你离开此页面后将无法再次看到明文。 
 
 ## 许可证
 本项目基于原项目的 GPL3.0 协议进行二次开发，遵循相同许可证条款。详情请参阅 [LICENSE](LICENSE) 文件。
