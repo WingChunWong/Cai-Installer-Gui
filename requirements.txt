@@ -1,0 +1,4 @@
+aiofiles
+httpx
+vdf
+ttkbootstrap
