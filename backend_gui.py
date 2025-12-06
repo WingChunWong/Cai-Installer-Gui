@@ -1,21 +1,19 @@
-# --- START OF CORRECTED backend_gui.py ---
-
 import os
 import sys
 import traceback
 import asyncio
 import re
 try:
-    import aiofiles # type: ignore
+    import aiofiles
 except ImportError:
     raise ImportError("aiofiles 库未安装。请使用 'pip install aiofiles' 安装。")
 try:
-    import httpx # type: ignore
+    import httpx
 except ImportError:
     raise ImportError("httpx 库未安装。请使用 'pip install httpx' 安装。")
 import winreg
 try:
-    import vdf # type: ignore
+    import vdf
 except ImportError:
     raise ImportError("vdf 库未安装。请使用 'pip install vdf' 安装。")
 import json
@@ -24,11 +22,9 @@ import shutil
 import struct
 import zlib
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Tuple, List, Dict, Literal
 
-# --- GLOBAL CONFIG ---
 DEFAULT_CONFIG = {
     "Github_Personal_Token": "",
     "Custom_Steam_Path": "",
@@ -39,31 +35,14 @@ DEFAULT_CONFIG = {
 }
 
 def get_app_dir():
-    """
-    获取应用程序的根目录（存放config.json的位置）。
-    兼容开发环境、Nuitka、PyInstaller、cx_Freeze等常见打包工具。
-    """
-    # 方案1: 如果存在 '_MEIPASS' 属性，说明是 PyInstaller 单文件模式
     if getattr(sys, '_MEIPASS', None):
-        # sys._MEIPASS 是解压临时目录，我们需要可执行文件所在的真实目录
         app_dir = Path(sys.executable).resolve().parent
-    
-    # 方案2: 如果存在 '__compiled__' 属性，说明是 Nuitka 打包
     elif '__compiled__' in globals():
-        # 对于Nuitka，sys.argv[0] 就是可执行文件路径
         app_dir = Path(sys.argv[0]).resolve().parent
-    
-    # 方案3: 如果 sys.frozen 属性为 True，可能是 cx_Freeze 或其他工具
     elif getattr(sys, 'frozen', False):
-        # 对于 cx_Freeze, sys.executable 就是可执行文件路径
         app_dir = Path(sys.executable).resolve().parent
-    
-    # 方案4: 普通开发环境
     else:
-        # 使用当前脚本文件所在的目录
         app_dir = Path(__file__).resolve().parent
-    
-    # 返回之前，确保路径是绝对路径且标准化（处理掉 ‘..’ 和符号链接等）
     return app_dir
 
 app_dir = get_app_dir()
@@ -132,7 +111,6 @@ class GuiBackend:
     def gen_config_file(self):
         try:
             config_path = app_dir / "config.json"
-            # 打印路径到日志，方便排查
             self.log.info(f"尝试生成config.json到路径：{config_path}")
             with open(config_path, mode="w", encoding="utf-8") as f:
                 json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
@@ -271,7 +249,6 @@ class GuiBackend:
         return user_input if user_input.isdigit() else None
 
     async def resolve_appids(self, inputs: List[str]) -> List[str]:
-        """解析AppID"""
         resolved_ids = []
         for item in inputs:
             if app_id := self.extract_app_id(item):
@@ -298,8 +275,7 @@ class GuiBackend:
                         self.log.info(f"在仓库 {repo} 中找到清单。")
         return results
 
-    async def process_github_repo(self, client: httpx.AsyncClient, app_id: str, repo: str, existing_data: dict = None): # type: ignore
-        """处理GitHub仓库"""
+    async def process_github_repo(self, client: httpx.AsyncClient, app_id: str, repo: str, existing_data: dict = None):
         try:
             headers = self.get_github_headers()
             
@@ -326,7 +302,7 @@ class GuiBackend:
                     self.log.error(f"下载/处理文件时出错: {res}")
                     return False
                 if res:
-                    collected_depots.extend(res) # type: ignore
+                    collected_depots.extend(res)
             
             if not any(isinstance(res, list) and res is not None for res in results) and not collected_depots:
                 self.log.error(f'仓库中没有找到有效的清单文件或密钥文件: {app_id}')
@@ -464,19 +440,15 @@ class GuiBackend:
                 
                 if not is_st_auto_update_mode:
                     self.log.info(f'[{source_name}] 按SteamTools标准模式安装清单文件。')
-                    # 定义两个目标路径
                     st_depot_path = self.steam_path / 'config' / 'depotcache'
                     gl_depot_path = self.steam_path / 'depotcache'
 
-                    # 确保两个目录都存在
                     st_depot_path.mkdir(parents=True, exist_ok=True)
                     gl_depot_path.mkdir(parents=True, exist_ok=True)
                     
                     if manifest_files:
                         for f in manifest_files:
-                            # 复制到第一个位置
                             shutil.copy2(f, st_depot_path)
-                            # 复制到第二个位置
                             shutil.copy2(f, gl_depot_path)
                         self.log.info(f"[{source_name}] 已复制 {len(manifest_files)} 个清单到 config/depotcache 和 depotcache 两个目录。")
                     else:
@@ -507,7 +479,7 @@ class GuiBackend:
                                 await f.write(line)
                 self.log.info(f'[{source_name}] 已为SteamTools生成解锁脚本: {lua_filename}')
                 return True
-            else: # GreenLuma
+            else:
                 self.log.info(f'[{source_name}] 按GreenLuma/标准模式安装。')
                 gl_depot = self.steam_path / 'depotcache'
                 gl_depot.mkdir(parents=True, exist_ok=True)
@@ -539,7 +511,6 @@ class GuiBackend:
                 shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     async def process_from_specific_repo(self, client: httpx.AsyncClient, inputs: List[str], repo_val: str):
-        """从指定仓库处理"""
         app_ids = await self.resolve_appids(inputs)
         if not app_ids:
             self.log.error("未能解析出任何有效的AppID。")
@@ -574,7 +545,6 @@ class GuiBackend:
                 success = await self.process_github_repo(client, app_id, repo_val)
             
             if success:
-                
                 self.log.info(f"App ID: {app_id} 处理成功。")
                 success_count += 1
             else:
@@ -588,7 +558,6 @@ class GuiBackend:
             self.log.info('临时文件清理完成。')
 
     async def process_by_searching_all(self, client: httpx.AsyncClient, inputs: List[str], github_repos: List[str]):
-        """搜索所有仓库处理"""
         app_ids = await self.resolve_appids(inputs)
         if not app_ids:
             self.log.error("未能解析出任何有效的AppID。")
@@ -621,11 +590,8 @@ class GuiBackend:
         return success_count > 0
 
     async def search_games_by_name_fallback(self, client: httpx.AsyncClient, game_name: str) -> List[Dict]:
-        """备用搜索方案"""
         try:
             self.log.info(f"尝试备用搜索方案: '{game_name}'")
-            
-            # 方案1: 使用SteamSpy API
             url = f'https://steamspy.com/api.php'
             params = {
                 'request': 'search',
@@ -636,11 +602,11 @@ class GuiBackend:
             if r.status_code == 200:
                 data = r.json()
                 games = []
-                for appid, game_info in list(data.items())[:20]:  # 限制结果数量
+                for appid, game_info in list(data.items())[:20]:
                     games.append({
                         'appid': int(appid),
                         'name': game_info.get('name', ''),
-                        'schinese_name': game_info.get('name', ''),  # SteamSpy可能没有中文名
+                        'schinese_name': game_info.get('name', ''),
                         'type': 'Game'
                     })
                 return games
@@ -654,11 +620,6 @@ class GuiBackend:
     async def search_games_by_name(self, client: httpx.AsyncClient, game_name: str) -> List[Dict]:
         try:
             self.log.info(f"搜索游戏: '{game_name}'")
-            
-            # 2. 使用Steam官方API
-            self.log.info("使用Steam官方API搜索...")
-            
-            # 准备请求参数
             url = 'https://store.steampowered.com/api/storesearch/'
             params = {
                 'term': game_name,
@@ -666,7 +627,6 @@ class GuiBackend:
                 'cc': 'CN'
             }
             
-            # 添加合理的请求头
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept': 'application/json',
@@ -675,29 +635,25 @@ class GuiBackend:
                 'Origin': 'https://store.steampowered.com',
             }
             
-            # 发送请求
             r = await client.get(url, params=params, headers=headers, timeout=15)
             
-            # 检查响应
             if r.status_code != 200:
                 self.log.error(f"API请求失败，状态码: {r.status_code}")
                 return await self.search_games_by_name_fallback(client, game_name)
             
             data = r.json()
-            
-            # 解析结果
             games = []
             for item in data.get('items', []):
                 game = {
                     'appid': item['id'],
                     'name': item['name'],
-                    'schinese_name': item['name'],  # Steam API返回的是本地化名称
+                    'schinese_name': item['name'],
                     'type': 'Game'
                 }
                 games.append(game)
             
             self.log.info(f"找到 {len(games)} 个匹配的游戏。")
-            return games[:20]  # 限制返回数量
+            return games[:20]
             
         except httpx.TimeoutException:
             self.log.error("搜索超时，请检查网络连接")
@@ -707,8 +663,6 @@ class GuiBackend:
             return []
         except Exception as e:
             self.log.error(f"搜索游戏时出错: {e}")
-            
-            # 尝试备用搜索方案
             try:
                 return await self.search_games_by_name_fallback(client, game_name)
             except Exception as e2:
