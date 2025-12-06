@@ -25,7 +25,8 @@ jobs:
           path: |
             C:\hostedtoolcache\windows\Python\*
             C:\hostedtoolcache\windows\PyPy\*
-          key: ${{ runner.os }}-python-tools-${{ hashFiles('**/requirements.txt') }}
+          # 更精确的路径匹配，避免递归匹配带来的哈希不一致
+          key: ${{ runner.os }}-python-tools-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-python-tools-
 
@@ -33,7 +34,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~\AppData\Local\pip\Cache
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          # 同样使用精确路径
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
