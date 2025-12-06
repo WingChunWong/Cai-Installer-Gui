@@ -275,7 +275,7 @@ class GuiBackend:
                         self.log.info(f"在仓库 {repo} 中找到清单。")
         return results
 
-    async def process_github_repo(self, client: httpx.AsyncClient, app_id: str, repo: str, existing_data: dict = None):
+    async def process_github_repo(self, client: httpx.AsyncClient, app_id: str, repo: str, existing_data: dict = None): # type: ignore
         try:
             headers = self.get_github_headers()
             
@@ -302,7 +302,7 @@ class GuiBackend:
                     self.log.error(f"下载/处理文件时出错: {res}")
                     return False
                 if res:
-                    collected_depots.extend(res)
+                    collected_depots.extend(res) # type: ignore
             
             if not any(isinstance(res, list) and res is not None for res in results) and not collected_depots:
                 self.log.error(f'仓库中没有找到有效的清单文件或密钥文件: {app_id}')
