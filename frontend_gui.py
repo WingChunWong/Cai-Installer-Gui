@@ -1019,7 +1019,10 @@ class CaiInstallGUI:
 
     def background_check_update(self):
         """后台检查更新"""
-        asyncio.run(self._check_update_async(show_no_update=False))
+        async def check():
+            await self._check_update_async(show_no_update=False)
+        
+        asyncio.run(check())
 
     def check_for_updates(self):
         """手动检查更新"""
@@ -1046,8 +1049,8 @@ class CaiInstallGUI:
         dialog.transient(self.root)
         
         # 设置窗口大小
-        dialog.geometry("600x500")
-        dialog.minsize(500, 400)
+        dialog.geometry("600x550")  # 稍微增加高度以显示网络信息
+        dialog.minsize(500, 450)
         
         # 居中显示
         dialog.update_idletasks()
@@ -1056,8 +1059,8 @@ class CaiInstallGUI:
         parent_width = self.root.winfo_width()
         parent_height = self.root.winfo_height()
         x = parent_x + (parent_width - 600) // 2
-        y = parent_y + (parent_height - 500) // 2
-        dialog.geometry(f"600x500+{x}+{y}")
+        y = parent_y + (parent_height - 550) // 2
+        dialog.geometry(f"600x550+{x}+{y}")
         
         # 主框架
         main_frame = ttk.Frame(dialog, padding=20)
@@ -1082,6 +1085,14 @@ class CaiInstallGUI:
                                 text=f"最新版本: {update_info['latest_version']}",
                                 font=('Consolas', 11, 'bold'))
         latest_label.pack(anchor=tk.W, pady=(2, 0))
+        
+        # 网络信息
+        if update_info.get('mirror_url'):
+            network_label = ttk.Label(version_frame,
+                                     text="✓ 已启用国内镜像加速下载",
+                                     font=('Consolas', 9),
+                                     foreground='green')
+            network_label.pack(anchor=tk.W, pady=(5, 0))
         
         # 更新内容
         ttk.Label(main_frame, 
@@ -1156,18 +1167,38 @@ class CaiInstallGUI:
                 temp_dir = tempfile.gettempdir()
                 exe_path = os.path.join(temp_dir, f"Cai-Installer-Gui-Update.exe")
                 
-                # 下载更新
-                success = asyncio.run(self.backend.download_update(download_url, exe_path))
+                # 下载更新 - 使用优化后的下载方法
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
                 
-                if success:
-                    self.root.after(0, progress_dialog.destroy)
-                    self.root.after(0, lambda: self.launch_updater(exe_path))
-                else:
-                    self.root.after(0, lambda: messagebox.showerror("更新失败", "无法下载更新文件，请稍后重试或手动下载。"))
-                    self.root.after(0, progress_dialog.destroy)
+                try:
+                    # 注意：这里我们直接调用 backend 的下载方法
+                    # 这个方法内部会处理镜像地址
+                    success = loop.run_until_complete(
+                        self.backend.download_update_with_mirror(download_url, exe_path)
+                    )
+                    
+                    if success:
+                        self.root.after(0, progress_dialog.destroy)
+                        self.root.after(0, lambda: self.launch_updater(exe_path))
+                    else:
+                        self.root.after(0, lambda: messagebox.showerror(
+                            "更新失败", 
+                            "无法下载更新文件，请稍后重试或手动下载。\n"
+                            "您也可以前往项目主页手动下载最新版本。", 
+                            parent=self.root
+                        ))
+                        self.root.after(0, progress_dialog.destroy)
+                finally:
+                    loop.close()
             except Exception as e:
                 self.log.error(f"更新过程出错: {str(e)}")
-                self.root.after(0, lambda: messagebox.showerror("更新失败", f"更新过程中发生错误: {str(e)}"))
+                self.root.after(0, lambda: messagebox.showerror(
+                    "更新失败", 
+                    f"更新过程中发生错误: {str(e)}\n"
+                    "请手动下载更新：https://github.com/WingChunWong/Cai-Installer-GUI/releases",
+                    parent=self.root
+                ))
                 self.root.after(0, progress_dialog.destroy)
         
         threading.Thread(target=download_and_install, daemon=True).start()
