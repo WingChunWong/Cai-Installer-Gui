@@ -4,6 +4,7 @@ import logging
 import asyncio
 import webbrowser
 import tkinter as tk
+from version import __version__ as CURRENT_VERSION
 from tkinter import BOTH, BOTTOM, DISABLED, EW, LEFT, NORMAL, RIGHT, SUNKEN, VERTICAL, W, X, Y, messagebox, scrolledtext
 from pathlib import Path
 import threading
@@ -123,6 +124,10 @@ class CaiInstallGUI(ttk.Window):
         self.state('zoomed')
         self.show_file_panel = True
         self.after(100, self.initialize_app)
+
+        self.update_check_done = False
+        # 启动时后台检查更新
+        threading.Thread(target=self.background_check_update, daemon=True).start()
     
     def setup_logging(self):
         logger = logging.getLogger('CaiInstallGUI')
@@ -172,6 +177,117 @@ class CaiInstallGUI(ttk.Window):
         help_menu.add_command(label="项目地址", command=lambda: webbrowser.open('https://github.com/WingChunWong/Cai-Installer-GUI'))
         help_menu.add_command(label="关于", command=self.show_about_dialog)
     
+        help_menu.add_separator()
+        help_menu.add_command(label="检查更新", command=self.check_for_updates)
+    
+    def background_check_update(self):
+        """后台检查更新"""
+        asyncio.run(self._check_update_async(show_no_update=False))
+
+    def check_for_updates(self):
+        """手动检查更新"""
+        threading.Thread(target=lambda: asyncio.run(self._check_update_async(show_no_update=True)), daemon=True).start()
+    
+    async def _check_update_async(self, show_no_update: bool):
+        """异步检查更新"""
+        self.after(0, lambda: self.status_bar.config(text="正在检查更新..."))
+        
+        result = await self.backend.check_for_updates(CURRENT_VERSION)
+        
+        self.after(0, lambda: self.status_bar.config(text="就绪"))
+        self.update_check_done = True
+        
+        if result['has_update']:
+            self.after(0, lambda: self.show_update_dialog(result))
+        elif show_no_update:
+            self.after(0, lambda: messagebox.showinfo("检查更新", f"当前已是最新版本: {CURRENT_VERSION}"))
+
+    def show_update_dialog(self, update_info):
+        """显示更新对话框"""
+        dialog = ttk.Toplevel(self)
+        dialog.title("发现新版本")
+        dialog.geometry("600x400")
+        dialog.resizable(True, True)
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # 版本信息
+        frame = ttk.Frame(dialog, padding=10)
+        frame.pack(fill=ttk.BOTH, expand=True)
+        
+        ttk.Label(frame, text=f"当前版本: {update_info['current_version']}", font=("Arial", 10)).pack(anchor=ttk.W)
+        ttk.Label(frame, text=f"最新版本: {update_info['latest_version']}", font=("Arial", 10, "bold")).pack(anchor=ttk.W, pady=(0, 10))
+        
+        # 发布说明
+        ttk.Label(frame, text="更新内容:", font=("Arial", 10, "bold")).pack(anchor=ttk.W)
+        notes_text = scrolledtext.ScrolledText(frame, wrap=tk.WORD, height=10)
+        notes_text.pack(fill=ttk.BOTH, expand=True, pady=5)
+        notes_text.insert(tk.END, update_info['release_notes'])
+        notes_text.configure(state='disabled')
+        
+        # 按钮区域
+        btn_frame = ttk.Frame(dialog, padding=10)
+        btn_frame.pack(fill=ttk.X)
+        
+        ttk.Button(btn_frame, text="取消", command=dialog.destroy).pack(side=ttk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="查看详情", command=lambda: webbrowser.open(update_info['release_url'])).pack(side=ttk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="立即更新", command=lambda: self.start_update(dialog, update_info['download_url']), style='success').pack(side=ttk.RIGHT)
+
+    def start_update(self, dialog, download_url):
+        """开始更新过程"""
+        # 关闭对话框
+        dialog.destroy()
+        
+        # 显示进度对话框
+        progress_dialog = ttk.Toplevel(self)
+        progress_dialog.title("正在更新")
+        progress_dialog.geometry("400x100")
+        progress_dialog.transient(self)
+        progress_dialog.grab_set()
+        
+        ttk.Label(progress_dialog, text="正在下载更新文件，请稍候...").pack(pady=10)
+        progress_bar = ttk.Progressbar(progress_dialog, mode="indeterminate")
+        progress_bar.pack(fill=ttk.X, padx=20, pady=10)
+        progress_bar.start()
+        
+        # 在新线程中执行下载
+        def download_and_install():
+            try:
+                # 创建临时文件
+                temp_dir = tempfile.gettempdir()
+                exe_path = os.path.join(temp_dir, f"Cai-Installer-Gui_{update_info['latest_version']}.exe")
+                
+                # 下载更新
+                success = asyncio.run(self.backend.download_update(download_url, exe_path))
+                
+                if success:
+                    self.after(0, progress_dialog.destroy)
+                    self.after(0, lambda: self.launch_updater(exe_path))
+                else:
+                    self.after(0, lambda: messagebox.showerror("更新失败", "无法下载更新文件，请稍后重试或手动下载。"))
+                    self.after(0, progress_dialog.destroy)
+            except Exception as e:
+                self.log.error(f"更新过程出错: {str(e)}")
+                self.after(0, lambda: messagebox.showerror("更新失败", f"更新过程中发生错误: {str(e)}"))
+                self.after(0, progress_dialog.destroy)
+        
+        threading.Thread(target=download_and_install, daemon=True).start()
+
+    def launch_updater(self, exe_path):
+        """启动更新程序并退出当前应用"""
+        try:
+            # 显示提示
+            messagebox.showinfo("准备更新", "更新文件已下载完成，即将安装新版本。应用程序将关闭。")
+            
+            # 启动更新程序
+            subprocess.Popen([exe_path])
+            
+            # 退出当前应用
+            self.on_closing()
+        except Exception as e:
+            self.log.error(f"启动更新程序失败: {str(e)}")
+            messagebox.showerror("启动失败", f"无法启动更新程序，请手动运行:\n{exe_path}")
+
     def create_widgets(self):
         main_frame = ttk.Frame(self, padding=10)
         main_frame.pack(fill=BOTH, expand=True)
