@@ -1200,9 +1200,8 @@ class GuiBackend:
         
         return mirrors[0] if mirrors else ""
     
-    async def download_update_direct(self, url: str, dest_path: str, 
-                                   progress_callback=None) -> bool:
-        """直接下载更新文件"""
+    async def download_update_direct(self, url: str, dest_path: str, progress_callback=None) -> bool:
+        """直接下载更新文件（带进度回调）"""
         try:
             self.log.info(f"下载更新: {url}")
             
@@ -1229,10 +1228,9 @@ class GuiBackend:
                             f.write(chunk)
                             downloaded_size += len(chunk)
                             
-                            # 更新进度
+                            # 更新进度 - 只传递2个参数
                             if progress_callback and total_size > 0:
-                                progress = min(100, (downloaded_size / total_size) * 100)
-                                progress_callback(downloaded_size, total_size, progress)
+                                progress_callback(downloaded_size, total_size)  # 只传递2个参数
                     
                     self.log.info(f"下载完成: {dest_path} ({downloaded_size} 字节)")
                     return True
