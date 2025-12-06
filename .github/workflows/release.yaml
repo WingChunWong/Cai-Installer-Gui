@@ -23,32 +23,20 @@ jobs:
           python-version: "3.13"
           architecture: "x64"
 
-      - name: Update version.py with tag version
-        shell: pwsh
-        run: |
-          # 从标签中提取版本号（去除前缀 'v'）
-          $version = "${{ github.ref_name }}".TrimStart('v')
-          Write-Host "Updating version.py with version: $version"
-
-          # 定义version.py路径
-          $versionFile = "version.py"
-
-          # 如果文件不存在则创建，存在则更新__version__变量
-          if (-not (Test-Path $versionFile)) {
-              ".__version__ = ''" | Out-File -FilePath $versionFile -Encoding utf8
-          }
-
-          # 使用正则表达式替换版本号
-          (Get-Content $versionFile -Raw) -replace '__version__ = ".*?"', "__version__ = `"$version`"" | Set-Content $versionFile -Encoding utf8
-
-          # 验证更新结果
-          Write-Host "Updated version.py content:"
-          Get-Content $versionFile
-
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      # 新增步骤：生成版本信息文件
+      - name: Generate Version File
+        run: |
+          # 从标签中提取版本号，去除前缀v
+          VERSION=${{ github.ref_name }}
+          VERSION=${VERSION:1}
+          echo "version = '$VERSION'" > version.py
+          echo "Generated version.py with version: $VERSION"
+        shell: bash
 
       - name: Generate Changelog
         run: |
@@ -65,6 +53,7 @@ jobs:
           --enable-plugin=tk-inter `
           --include-package=ttkbootstrap,httpx,aiofiles,vdf `
           --include-module=backend_gui `
+          --include-module=version `
           --assume-yes-for-downloads `
           frontend_gui.py
         shell: pwsh
@@ -74,7 +63,6 @@ jobs:
           ren frontend_gui.exe "Cai-Installer-Gui_${{ github.ref_name }}.exe"
         shell: pwsh
         # github.ref_name 将会是类似 v1.2.3 的标签名
-
       - name: Upload Artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
