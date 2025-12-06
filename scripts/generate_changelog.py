@@ -125,7 +125,7 @@ def main():
 
     # Generate markdown
     lines = []
-    lines.append("What's Change:")
+    lines.append("# What's Change:")
     lines.append("")
     lines.append(f"## {curr_tag}")
     if prev_tag:
