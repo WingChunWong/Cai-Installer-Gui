@@ -5,3 +5,5 @@ frontend_gui.dist/
 nuitka-crash-report.xml
 .venv/
 frontend_gui.onefile-build
+-p/
+frontend_gui.exe
