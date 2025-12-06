@@ -142,7 +142,7 @@ class GameSelectionDialog(tk.Toplevel):
         
         # 设置窗口大小
         self.geometry("600x400")
-        self.minsize(400, 300)
+        self.minsize(800, 500)
         
         # 居中显示
         self.update_idletasks()
@@ -203,7 +203,7 @@ class GameSelectionDialog(tk.Toplevel):
         
         ok_button = ttk.Button(button_frame, text="确定", 
                               command=self.ok,
-                              style='Accent.TButton')
+                              style='')
         ok_button.pack(side=tk.RIGHT, padx=(5, 0))
         
         cancel_button = ttk.Button(button_frame, text="取消", 
@@ -823,7 +823,7 @@ class CaiInstallGUI:
                 return success
             elif tab_index == 1:
                 self.log.info("模式: 搜索所有GitHub库")
-                github_repos = [val for _, val in self.repo_options if val not in ["swa", "cysaw", "furcate", "cngs", "steamdatabase"]]
+                github_repos = [val for _, val in self.repo_options if val not in ["swa", "cysaw", "furcate", "cngs", "steamdatabase", "walftech"]]
                 success = await self.backend.process_by_searching_all(client, app_id_inputs, github_repos)
                 return success
             return False
