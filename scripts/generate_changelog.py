@@ -85,6 +85,19 @@ def main():
         sys.exit(0)
 
     # Group by conventional commit type
+    gitmoji = {
+        "feat": "✨",
+        "fix": "🐛",
+        "docs": "📝",
+        "style": "🎨",
+        "refactor": "♻️",
+        "perf": "⚡",
+        "test": "✅",
+        "build": "📦",
+        "ci": "👷",
+        "chore": "🔨",
+        "other": "🚀",
+    }
     groups = {
         "feat": [],
         "fix": [],
@@ -112,6 +125,8 @@ def main():
 
     # Generate markdown
     lines = []
+    lines.append("What's Change:")
+    lines.append("")
     lines.append(f"## {curr_tag}")
     if prev_tag:
         lines.append(f"**Changes since {prev_tag}**\n")
@@ -121,7 +136,8 @@ def main():
     for gname, glist in groups.items():
         if not glist:
             continue
-        lines.append(f"### {gname.capitalize()}")
+        emoji = gitmoji.get(gname, "")
+        lines.append(f"### {emoji} {gname.capitalize()}")
         for hash_, subj in glist:
             lines.append(f"- {hash_}: {subj}")
         lines.append("")
