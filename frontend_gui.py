@@ -1172,23 +1172,33 @@ class CaiInstallGUI:
                 asyncio.set_event_loop(loop)
                 
                 try:
-                    # 注意：这里我们直接调用 backend 的下载方法
-                    # 这个方法内部会处理镜像地址
                     success = loop.run_until_complete(
                         self.backend.download_update_with_mirror(download_url, exe_path)
                     )
                     
                     if success:
+                        self.log.info("更新文件下载成功")
                         self.root.after(0, progress_dialog.destroy)
                         self.root.after(0, lambda: self.launch_updater(exe_path))
                     else:
+                        self.log.error("更新文件下载失败")
                         self.root.after(0, lambda: messagebox.showerror(
                             "更新失败", 
                             "无法下载更新文件，请稍后重试或手动下载。\n"
-                            "您也可以前往项目主页手动下载最新版本。", 
+                            "您也可以前往项目主页手动下载最新版本：\n"
+                            "https://github.com/WingChunWong/Cai-Installer-GUI/releases",
                             parent=self.root
                         ))
                         self.root.after(0, progress_dialog.destroy)
+                except Exception as e:
+                    self.log.error(f"更新下载过程中出现异常: {str(e)}")
+                    self.root.after(0, lambda: messagebox.showerror(
+                        "更新异常", 
+                        f"更新过程中出现异常: {str(e)}\n"
+                        "请尝试手动下载更新。",
+                        parent=self.root
+                    ))
+                    self.root.after(0, progress_dialog.destroy)
                 finally:
                     loop.close()
             except Exception as e:
