@@ -10,12 +10,34 @@ jobs:
   build-and-release:
     runs-on: windows-latest
     permissions:
-      contents: write # 允许上传发布内容
+      contents: write # 允许上传发布内容和提交代码
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # 确保获取完整的历史和标签
+          persist-credentials: true # 保留凭据用于后续提交
+
+      - name: Generate version.py
+        run: |
+          # 从标签提取版本号（去除前缀v）
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          # 创建version.py文件
+          ".__version__ = '$version'" | Out-File -FilePath version.py -Encoding utf8
+          # 显示生成的文件内容（用于验证）
+          Get-Content version.py
+        shell: pwsh
+
+      - name: Commit version.py
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add version.py
+          git commit -m "🔧 chore: update version.py to ${{ github.ref_name }} [skip ci]"
+          git push
+        shell: bash
+        continue-on-error: true # 即使提交失败也不中断工作流（如文件无变化时）
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -27,16 +49,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      # 新增步骤：生成版本信息文件
-      - name: Generate Version File
-        run: |
-          # 从标签中提取版本号，去除前缀v
-          VERSION=${{ github.ref_name }}
-          VERSION=${VERSION:1}
-          echo "version = '$VERSION'" > version.py
-          echo "Generated version.py with version: $VERSION"
-        shell: bash
 
       - name: Generate Changelog
         run: |
