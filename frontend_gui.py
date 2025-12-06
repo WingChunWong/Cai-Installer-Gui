@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from pathlib import Path
+import shutil
 import sys
 import os
 import logging
@@ -221,6 +222,240 @@ class GameSelectionDialog(tk.Toplevel):
         self.result = self.games[selections[0]]
         self.destroy()
 
+class UpdateManager:
+    """更新管理器"""
+    
+    def __init__(self, gui_app):
+        self.gui = gui_app
+        self.log = gui_app.log
+        self.backend = gui_app.backend
+        self.root = gui_app.root
+        
+    async def download_update(self, download_url: str, progress_callback=None) -> str:
+        """下载更新文件到程序目录的上一级"""
+        try:
+            # 获取应用程序目录
+            if getattr(sys, 'frozen', False):
+                # 打包后的exe
+                exe_dir = Path(sys.executable).parent
+                current_exe = Path(sys.executable)
+            else:
+                # 源码运行
+                exe_dir = Path(__file__).parent
+                current_exe = exe_dir / "frontend_gui.py"
+            
+            self.log.info(f"当前程序位置: {current_exe}")
+            
+            # 在程序目录的上一级创建更新目录，避免权限问题
+            update_dir = exe_dir.parent / "Cai-Installer-GUI-Updates"
+            update_dir.mkdir(exist_ok=True)
+            
+            # 生成更新文件名
+            timestamp = int(time.time())
+            update_exe_name = f"Cai-Installer-GUI-Update-{timestamp}.exe"
+            update_path = update_dir / update_exe_name
+            
+            self.log.info(f"更新文件将保存到: {update_path}")
+            
+            # 创建临时文件用于下载
+            temp_path = update_dir / f"temp_{update_exe_name}"
+            
+            # 下载更新
+            self.log.info(f"开始下载更新文件...")
+            
+            if os.environ.get('IS_CN') == 'yes':
+                self.log.info("检测到中国大陆地区，使用镜像下载")
+                # 尝试镜像下载
+                mirror_url = self.backend.convert_github_to_mirror(download_url)
+                if mirror_url:
+                    success = await self.backend.download_update_direct(
+                        mirror_url, str(temp_path), progress_callback
+                    )
+                    if success:
+                        # 重命名临时文件
+                        if temp_path.exists():
+                            shutil.move(temp_path, update_path)
+                        return str(update_path)
+            
+            # 如果镜像下载失败或不在中国大陆，使用原地址
+            self.log.info("使用GitHub官方源下载")
+            success = await self.backend.download_update_direct(
+                download_url, str(temp_path), progress_callback
+            )
+            
+            if success:
+                # 重命名临时文件
+                if temp_path.exists():
+                    shutil.move(temp_path, update_path)
+                return str(update_path)
+            
+            return ""
+            
+        except Exception as e:
+            self.log.error(f"下载更新失败: {str(e)}")
+            return ""
+    
+    def create_update_script(self, current_exe_path: str, new_exe_path: str) -> str:
+        """创建更新脚本（批处理文件）用于覆盖旧版本"""
+        try:
+            # 获取脚本保存目录
+            if getattr(sys, 'frozen', False):
+                exe_dir = Path(sys.executable).parent
+            else:
+                exe_dir = Path(__file__).parent
+            
+            script_dir = exe_dir.parent / "Cai-Installer-GUI-Updates"
+            script_dir.mkdir(exist_ok=True)
+            
+            # 生成脚本文件名
+            timestamp = int(time.time())
+            script_name = f"update_script_{timestamp}.bat"
+            script_path = script_dir / script_name
+            
+            # 创建批处理脚本
+            bat_content = f"""@echo off
+chcp 65001 >nul
+echo 正在更新 Cai Install GUI...
+echo 请稍候，这可能需要几秒钟时间...
+
+:: 等待当前程序退出
+timeout /t 2 /nobreak >nul
+
+:: 尝试复制新版本到原位置
+set retry_count=0
+:retry_copy
+if exist "{new_exe_path}" (
+    copy /Y "{new_exe_path}" "{current_exe_path}" >nul 2>&1
+    if %errorlevel% neq 0 (
+        set /a retry_count=retry_count+1
+        if %retry_count% lss 5 (
+            timeout /t 1 /nobreak >nul
+            goto retry_copy
+        )
+    )
+)
+
+:: 检查是否复制成功
+if exist "{current_exe_path}" (
+    echo 更新成功！正在启动新版本...
+    :: 删除临时文件
+    if exist "{new_exe_path}" del "{new_exe_path}"
+    if exist "{script_path}" del "{script_path}"
+    
+    :: 启动新版本
+    start "" "{current_exe_path}"
+    
+    :: 删除更新目录中的其他旧文件
+    forfiles /p "{script_dir}" /m "Cai-Installer-GUI-Update-*.exe" /d -3 /c "cmd /c del @path"
+    forfiles /p "{script_dir}" /m "update_script_*.bat" /d -3 /c "cmd /c del @path"
+) else (
+    echo 更新失败！请手动更新。
+    pause
+)
+
+exit
+"""
+            
+            with open(script_path, 'w', encoding='utf-8') as f:
+                f.write(bat_content)
+            
+            self.log.info(f"创建更新脚本: {script_path}")
+            return str(script_path)
+            
+        except Exception as e:
+            self.log.error(f"创建更新脚本失败: {str(e)}")
+            return ""
+    
+    def launch_updater(self, update_exe_path: str):
+        """启动更新程序并覆盖旧版本"""
+        try:
+            if not update_exe_path or not os.path.exists(update_exe_path):
+                self.log.error("更新文件不存在")
+                return False
+            
+            # 获取当前程序路径
+            if getattr(sys, 'frozen', False):
+                current_exe = sys.executable
+            else:
+                # 对于源码运行，我们假设用户会打包成exe
+                current_exe = Path(__file__).parent / "Cai-Installer-GUI.exe"
+                if not current_exe.exists():
+                    # 如果没有打包的exe，使用当前脚本
+                    current_exe = sys.executable
+            
+            self.log.info(f"当前程序: {current_exe}")
+            self.log.info(f"新版本文件: {update_exe_path}")
+            
+            # 创建更新脚本
+            update_script = self.create_update_script(str(current_exe), update_exe_path)
+            
+            if not update_script or not os.path.exists(update_script):
+                self.log.error("无法创建更新脚本")
+                # 直接尝试启动更新程序
+                messagebox.showinfo("准备更新", 
+                    "更新文件已下载完成，请手动替换旧版本。")
+                return False
+            
+            # 显示提示
+            messagebox.showinfo("准备更新", 
+                "更新文件已下载完成，即将覆盖安装新版本。应用程序将关闭并重启。")
+            
+            # 启动更新脚本
+            subprocess.Popen([update_script], shell=True)
+            
+            # 延迟退出，让更新脚本有足够时间启动
+            self.root.after(1000, self.gui.on_closing)
+            return True
+            
+        except Exception as e:
+            self.log.error(f"启动更新程序失败: {str(e)}")
+            # 尝试直接打开更新文件
+            try:
+                messagebox.showinfo("手动更新", 
+                    f"自动更新失败，请手动运行更新程序:\n{update_exe_path}")
+                os.startfile(update_exe_path)
+                self.gui.on_closing()
+            except Exception as e2:
+                self.log.error(f"无法启动更新程序: {str(e2)}")
+            return False
+    
+    def cleanup_old_updates(self):
+        """清理旧的更新文件"""
+        try:
+            if getattr(sys, 'frozen', False):
+                exe_dir = Path(sys.executable).parent
+            else:
+                exe_dir = Path(__file__).parent
+            
+            update_dir = exe_dir.parent / "Cai-Installer-GUI-Updates"
+            if not update_dir.exists():
+                return
+            
+            # 保留最近3个更新文件，删除旧的
+            update_files = list(update_dir.glob("Cai-Installer-GUI-Update-*.exe"))
+            update_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+            
+            for old_file in update_files[3:]:
+                try:
+                    old_file.unlink()
+                    self.log.debug(f"已清理旧更新文件: {old_file.name}")
+                except Exception as e:
+                    self.log.debug(f"清理旧更新文件失败: {old_file.name} - {e}")
+            
+            # 清理旧的更新脚本
+            script_files = list(update_dir.glob("update_script_*.bat"))
+            script_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+            
+            for old_script in script_files[3:]:
+                try:
+                    old_script.unlink()
+                    self.log.debug(f"已清理旧更新脚本: {old_script.name}")
+                except Exception as e:
+                    self.log.debug(f"清理旧更新脚本失败: {old_script.name} - {e}")
+                    
+        except Exception as e:
+            self.log.debug(f"清理旧更新文件时出错: {e}")
+
 class CaiInstallGUI:
     def __init__(self):
         self.root = tk.Tk()
@@ -268,6 +503,8 @@ class CaiInstallGUI:
         
         # 更新检查状态
         self.update_check_done = False
+        
+        self.update_manager = UpdateManager(self)
         
         # 启动时后台检查更新
         threading.Thread(target=self.background_check_update, daemon=True).start()
@@ -1369,18 +1606,20 @@ class CaiInstallGUI:
             text_widget.insert(tk.END, plain_text)
 
     def start_update(self, dialog, download_url):
-        """开始更新过程"""
+        """开始更新过程 - 使用更新管理器"""
         dialog.destroy()
         
         if not download_url:
-            messagebox.showerror("更新失败", "无法获取下载链接，请手动下载。", parent=self.root)
+            messagebox.showerror("更新失败", 
+                "无法获取下载链接，请手动下载。", 
+                parent=self.root)
             return
         
         # 显示进度对话框
         progress_dialog = tk.Toplevel(self.root)
         progress_dialog.title("正在更新")
         progress_dialog.transient(self.root)
-        progress_dialog.geometry("400x180")
+        progress_dialog.geometry("500x220")
         progress_dialog.resizable(False, False)
         
         # 居中显示
@@ -1389,57 +1628,91 @@ class CaiInstallGUI:
         parent_y = self.root.winfo_y()
         parent_width = self.root.winfo_width()
         parent_height = self.root.winfo_height()
-        x = parent_x + (parent_width - 400) // 2
-        y = parent_y + (parent_height - 180) // 2
-        progress_dialog.geometry(f"400x180+{x}+{y}")
+        x = parent_x + (parent_width - 500) // 2
+        y = parent_y + (parent_height - 220) // 2
+        progress_dialog.geometry(f"500x220+{x}+{y}")
         
-        main_frame = ttk.Frame(progress_dialog, padding=20)
+        main_frame = ttk.Frame(progress_dialog, padding=25)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # 网络状态显示
         network_status = "使用镜像下载" if os.environ.get('IS_CN') == 'yes' else "使用GitHub官方源"
-        status_label = ttk.Label(main_frame, text=f"正在下载更新文件 ({network_status})...")
-        status_label.pack(anchor=tk.W, pady=(0, 10))
+        status_label = ttk.Label(main_frame, 
+            text=f"正在下载更新文件 ({network_status})...\n文件将保存在程序目录的上一级",
+            font=('Consolas', 9))
+        status_label.pack(anchor=tk.W, pady=(0, 15))
+        
+        # 更新说明
+        update_info_label = ttk.Label(main_frame, 
+            text="下载完成后将自动覆盖旧版本并重启。",
+            font=('Consolas', 9), foreground='blue')
+        update_info_label.pack(anchor=tk.W, pady=(0, 10))
+        
+        # 文件路径显示
+        self.update_path_label = ttk.Label(main_frame, text="", font=('Consolas', 8))
+        self.update_path_label.pack(anchor=tk.W, pady=(0, 10))
         
         progress_var = tk.DoubleVar()
-        progress_bar = ttk.Progressbar(main_frame, variable=progress_var, maximum=100, mode="determinate")
+        progress_bar = ttk.Progressbar(main_frame, variable=progress_var, 
+                                    maximum=100, mode="determinate", length=350)
         progress_bar.pack(fill=tk.X, pady=(0, 10))
         
         progress_text = ttk.Label(main_frame, text="准备下载...")
         progress_text.pack()
         
-        # 进度回调函数
+        # 进度回调函数 - 修改为接受2个参数
         def update_progress(current, total):
             if total > 0:
                 percent = (current / total) * 100
                 progress_var.set(percent)
-                progress_text.config(text=f"{current / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB ({percent:.1f}%)")
+                current_mb = current / 1024 / 1024
+                total_mb = total / 1024 / 1024
+                progress_text.config(
+                    text=f"{current_mb:.1f} MB / {total_mb:.1f} MB ({percent:.1f}%)"
+                )
                 progress_dialog.update()
         
+        # 清理旧的更新文件
+        self.update_manager.cleanup_old_updates()
+        
         # 在新线程中执行下载
-        def download_and_install():
+        def download_and_update():
             try:
-                # 创建临时文件
-                temp_dir = tempfile.gettempdir()
-                exe_path = os.path.join(temp_dir, f"Cai-Installer-Gui-Update-{int(time.time())}.exe")
-                
-                # 下载更新 - 使用优化后的下载方法
+                # 在单独的线程中运行异步任务
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 
                 try:
-                    self.root.after(0, lambda: status_label.config(text="开始下载..."))
+                    # 更新状态
+                    self.root.after(0, lambda: status_label.config(
+                        text=f"开始下载更新文件 ({network_status})...\n请稍候..."
+                    ))
                     
-                    success = loop.run_until_complete(
-                        self.backend.download_update_with_mirror(download_url, exe_path, update_progress)
+                    # 下载更新文件
+                    update_exe_path = loop.run_until_complete(
+                        self.update_manager.download_update(download_url, update_progress)
                     )
                     
-                    if success:
-                        self.log.info("更新文件下载成功")
-                        self.root.after(0, lambda: status_label.config(text="下载完成，准备安装..."))
-                        time.sleep(1)  # 给用户看到完成状态
+                    if update_exe_path and os.path.exists(update_exe_path):
+                        # 更新文件路径显示
+                        self.root.after(0, lambda: self.update_path_label.config(
+                            text=f"文件位置: {os.path.basename(update_exe_path)}"
+                        ))
+                        
+                        self.log.info(f"更新文件下载成功: {update_exe_path}")
+                        self.root.after(0, lambda: status_label.config(
+                            text="下载完成，准备覆盖安装..."
+                        ))
+                        self.root.after(0, lambda: progress_text.config(text="下载完成！准备覆盖..."))
+                        
+                        # 延迟显示，让用户看到完成状态
+                        time.sleep(1)
+                        
+                        # 关闭进度对话框并启动更新
                         self.root.after(0, progress_dialog.destroy)
-                        self.root.after(0, lambda: self.launch_updater(exe_path))
+                        
+                        # 启动更新程序进行覆盖安装
+                        self.root.after(0, lambda: self.update_manager.launch_updater(update_exe_path))
                     else:
                         self.log.error("更新文件下载失败")
                         self.root.after(0, lambda: messagebox.showerror(
@@ -1450,6 +1723,7 @@ class CaiInstallGUI:
                             parent=self.root
                         ))
                         self.root.after(0, progress_dialog.destroy)
+                        
                 except Exception as e:
                     self.log.error(f"更新下载过程中出现异常: {str(e)}")
                     self.root.after(0, lambda: messagebox.showerror(
@@ -1461,6 +1735,7 @@ class CaiInstallGUI:
                     self.root.after(0, progress_dialog.destroy)
                 finally:
                     loop.close()
+                    
             except Exception as e:
                 self.log.error(f"更新过程出错: {str(e)}")
                 self.root.after(0, lambda: messagebox.showerror(
@@ -1471,7 +1746,9 @@ class CaiInstallGUI:
                 ))
                 self.root.after(0, progress_dialog.destroy)
         
-        threading.Thread(target=download_and_install, daemon=True).start()
+        # 启动下载线程
+        download_thread = threading.Thread(target=download_and_update, daemon=True)
+        download_thread.start()
 
     def launch_updater(self, exe_path):
         """启动更新程序并退出当前应用"""
@@ -1555,3 +1832,4 @@ if __name__ == '__main__':
     # 创建并运行应用
     app = CaiInstallGUI()
     app.run()
+    
