@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 import os
@@ -1050,8 +1051,8 @@ class CaiInstallGUI:
         dialog.transient(self.root)
         
         # 设置窗口大小
-        dialog.geometry("600x550")
-        dialog.minsize(800, 600)
+        dialog.geometry("500x450")
+        dialog.minsize(800, 700)
         
         # 居中显示
         dialog.update_idletasks()
@@ -1069,8 +1070,8 @@ class CaiInstallGUI:
         
         # 标题
         title_label = ttk.Label(main_frame, 
-                               text="发现新版本！",
-                               font=('Consolas', 14, 'bold'))
+                            text="发现新版本！",
+                            font=('Consolas', 14, 'bold'))
         title_label.pack(anchor=tk.W, pady=(0, 10))
         
         # 版本信息
@@ -1078,8 +1079,8 @@ class CaiInstallGUI:
         version_frame.pack(fill=tk.X, pady=(0, 15))
         
         current_label = ttk.Label(version_frame, 
-                                 text=f"当前版本: {update_info['current_version']}",
-                                 font=('Consolas', 10))
+                                text=f"当前版本: {update_info['current_version']}",
+                                font=('Consolas', 10))
         current_label.pack(anchor=tk.W)
         
         latest_label = ttk.Label(version_frame, 
@@ -1087,24 +1088,60 @@ class CaiInstallGUI:
                                 font=('Consolas', 11, 'bold'))
         latest_label.pack(anchor=tk.W, pady=(2, 0))
         
-        # 网络信息
+        # 网络和地区信息
+        network_frame = ttk.Frame(version_frame)
+        network_frame.pack(anchor=tk.W, pady=(5, 0))
+        
+        # 获取地区信息
+        region = "未知"
+        if hasattr(self.backend, 'last_detected_region'):
+            region = self.backend.last_detected_region
+        
+        # 格式化地区显示
+        region_display = "中国大陆" if region == 'cn' else region.replace('not_cn_', '')
+        
+        # 根据地区决定使用的源
         if os.environ.get('IS_CN') == 'yes':
-            network_label = ttk.Label(version_frame,
-                                     text="✓ 中国大陆网络，已启用镜像加速",
-                                     font=('Consolas', 9),
-                                     foreground='green')
-            network_label.pack(anchor=tk.W, pady=(5, 0))
+            network_text = f"您的IP归属地为{region_display}，使用镜像源"
+            network_color = 'green'
         else:
-            network_label = ttk.Label(version_frame,
-                                     text="✓ 非中国大陆网络，使用GitHub官方源",
-                                     font=('Consolas', 9),
-                                     foreground='blue')
-            network_label.pack(anchor=tk.W, pady=(5, 0))
+            network_text = f"您的IP归属地为{region_display}，使用GitHub源"
+            network_color = 'blue'
+        
+        network_label = ttk.Label(network_frame,
+                                text=network_text,
+                                font=('Consolas', 9),
+                                foreground=network_color)
+        network_label.pack(anchor=tk.W)
+        
+        # 更新时间
+        if update_info.get('published_at'):
+            try:
+                pub_time = update_info['published_at']
+                
+                # 解析UTC时间并转换为UTC+8（北京时间）
+                if 'Z' in pub_time:
+                    # ISO格式带Z表示UTC时间
+                    utc_time = datetime.fromisoformat(pub_time.replace('Z', '+00:00'))
+                else:
+                    utc_time = datetime.fromisoformat(pub_time)
+                
+                # 转换为UTC+8（北京时间）
+                beijing_time = utc_time + timedelta(hours=8)
+                pub_date = beijing_time.strftime('%Y-%m-%d %H:%M UTC+8')
+                
+                time_label = ttk.Label(network_frame,
+                                    text=f"发布时间: {pub_date}",
+                                    font=('Consolas', 8),
+                                    foreground='gray')
+                time_label.pack(anchor=tk.W, pady=(2, 0))
+            except Exception as e:
+                self.log.debug(f"解析发布时间失败: {e}")
         
         # 更新内容
         ttk.Label(main_frame, 
-                 text="更新内容:",
-                 font=('Consolas', 11, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+                text="更新内容:",
+                font=('Consolas', 11, 'bold')).pack(anchor=tk.W, pady=(0, 5))
         
         notes_text = scrolledtext.ScrolledText(
             main_frame,
@@ -1126,12 +1163,12 @@ class CaiInstallGUI:
         cancel_btn.pack(side=tk.RIGHT, padx=(5, 0))
         
         details_btn = ModernButton(button_frame, text="查看详情", 
-                                  command=lambda: webbrowser.open(update_info['release_url']))
+                                command=lambda: webbrowser.open(update_info['release_url']))
         details_btn.pack(side=tk.RIGHT, padx=5)
         
         update_btn = ModernButton(button_frame, text="立即更新", 
-                                 command=lambda: self.start_update(dialog, update_info['download_url']),
-                                 style='Accent.TButton')
+                                command=lambda: self.start_update(dialog, update_info['download_url']),
+                                style='Accent.TButton')
         update_btn.pack(side=tk.RIGHT)
 
     def start_update(self, dialog, download_url):
