@@ -122,8 +122,6 @@ class CaiInstallGUI(ttk.Window):
         self.log = self.setup_logging()
         self.backend = GuiBackend(self.log)
         self.create_menu()
-
-        
         
         # 设置为最大化
         self.state('zoomed')
