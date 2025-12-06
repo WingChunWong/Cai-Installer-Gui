@@ -25,7 +25,7 @@ jobs:
           # 从标签提取版本号（去除前缀v）
           $version = "${{ github.ref_name }}".TrimStart('v')
           # 创建version.py文件
-          ".__version__ = '$version'" | Out-File -FilePath version.py -Encoding utf8
+          "__version__ = '$version'" | Out-File -FilePath version.py -Encoding utf8
           # 显示生成的文件内容（用于验证）
           Get-Content version.py
         shell: pwsh
