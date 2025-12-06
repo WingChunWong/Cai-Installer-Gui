@@ -205,16 +205,22 @@ class GuiBackend:
                 else:
                     client_to_use = client
                 
-                r = await client_to_use.get('https://mips.kugou.com/check/iscn?&format=json', timeout=5)
-                if not bool(r.json().get('flag')):
-                    self.log.info(f"检测到您在非中国大陆地区 ({r.json().get('country')})，将使用GitHub官方下载源。")
-                    os.environ['IS_CN'] = 'no'
-                else:
+                # 尝试检测地区
+                try:
+                    r = await client_to_use.get('https://mips.kugou.com/check/iscn?&format=json', timeout=5)
+                    if not bool(r.json().get('flag')):
+                        self.log.info(f"检测到非中国大陆地区 ({r.json().get('country')})")
+                        os.environ['IS_CN'] = 'no'
+                    else:
+                        os.environ['IS_CN'] = 'yes'
+                        self.log.info("检测到中国大陆地区")
+                except httpx.TimeoutException:
+                    self.log.warning('地区检测超时，默认使用国内镜像')
                     os.environ['IS_CN'] = 'yes'
-                    self.log.info("检测到您在中国大陆地区，将使用国内镜像。")
-            except Exception:
-                os.environ['IS_CN'] = 'yes'
-                self.log.warning('检查服务器位置失败，将默认使用国内加速CDN。')
+                except Exception as e:
+                    self.log.warning(f'地区检测失败: {e}，默认使用国内镜像')
+                    os.environ['IS_CN'] = 'yes'
+                    
             finally:
                 if temp_client:
                     await temp_client.aclose()
@@ -770,26 +776,6 @@ class GuiBackend:
             if os.path.exists(dest_path):
                 os.remove(dest_path)
             return False
-        
-    async def download_update_with_mirror(self, url: str, dest_path: str) -> bool:
-        """根据地区使用镜像或原始地址下载更新"""
-        try:
-            self.log.info(f"开始下载更新，检测网络环境...")
-            
-            # 尝试使用镜像方案
-            success = await self._try_mirror_download(url, dest_path)
-            if success:
-                return True
-            
-            # 如果镜像方案失败，尝试直接下载
-            self.log.warning("镜像下载失败，尝试直接下载...")
-            return await self.download_update_direct(url, dest_path)
-            
-        except Exception as e:
-            self.log.error(f"更新下载失败: {self.stack_error(e)}")
-            if os.path.exists(dest_path):
-                os.remove(dest_path)
-            return False
     
     async def _try_mirror_download(self, url: str, dest_path: str) -> bool:
         """尝试使用镜像下载"""
@@ -822,20 +808,66 @@ class GuiBackend:
             if match:
                 owner, repo, tag, filename = match.groups()
                 
-                # 使用jsdelivr镜像 - 支持release文件
-                mirror_url = f'https://cdn.jsdelivr.net/gh/{owner}/{repo}@{tag}/{filename}'
-                self.log.info(f"GitHub URL转换为镜像: {github_url} -> {mirror_url}")
-                return mirror_url
+                # 多种镜像源选择
+                mirror_sources = [
+                    f'https://wget.la/{github_url}'
+                    f'https://ghfast.top/{github_url}',
+                ]
+                
+                # 返回第一个可用的镜像源
+                for mirror_url in mirror_sources:
+                    self.log.info(f"生成镜像地址: {mirror_url}")
+                return mirror_sources[0]
             
             return ""
         except Exception as e:
             self.log.error(f"转换镜像地址失败: {e}")
             return ""
-        
-    async def download_update_direct(self, url: str, dest_path: str, progress_callback=None) -> bool:
-        """直接下载更新文件（不处理镜像），支持进度回调"""
+    
+    async def download_update_with_mirror(self, url: str, dest_path: str, progress_callback=None) -> bool:
+        """根据地区使用镜像或原始地址下载更新"""
         try:
-            self.log.info(f"直接下载更新: {url}")
+            self.log.info(f"开始下载更新，检测网络环境...")
+            
+            # 检查是否在中国大陆
+            if os.environ.get('IS_CN') == 'yes':
+                self.log.info("检测到中国大陆网络，尝试使用镜像下载")
+                return await self._try_cn_download(url, dest_path, progress_callback)
+            else:
+                self.log.info("非中国大陆网络，直接使用原始地址下载")
+                return await self.download_update_direct(url, dest_path, progress_callback)
+            
+        except Exception as e:
+            self.log.error(f"更新下载失败: {self.stack_error(e)}")
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            return False
+    
+    async def _try_cn_download(self, url: str, dest_path: str, progress_callback=None) -> bool:
+        """中国大陆地区下载逻辑"""
+        # 尝试解析GitHub release URL以获取镜像地址
+        mirror_url = self.convert_github_to_mirror(url)
+        if mirror_url:
+            self.log.info(f"使用镜像地址: {mirror_url}")
+            
+            # 先尝试镜像地址下载
+            try:
+                success = await self.download_update_direct(mirror_url, dest_path, progress_callback)
+                if success:
+                    return True
+                else:
+                    self.log.warning("镜像下载失败，尝试原始地址...")
+            except Exception as e:
+                self.log.warning(f"镜像下载异常: {e}，尝试原始地址...")
+        
+        # 镜像失败或没有镜像地址，尝试原始地址
+        self.log.info("尝试使用原始地址下载...")
+        return await self.download_update_direct(url, dest_path, progress_callback)
+    
+    async def download_update_direct(self, url: str, dest_path: str, progress_callback=None) -> bool:
+        """直接下载更新文件"""
+        try:
+            self.log.info(f"下载更新: {url}")
             
             async with httpx.AsyncClient(
                 timeout=60,
@@ -846,7 +878,7 @@ class GuiBackend:
                     'Accept-Language': 'en-US,en;q=0.9',
                 }
             ) as client:
-                # 先获取重定向后的最终URL和文件大小
+                # 先获取文件信息
                 head_response = await client.head(url, follow_redirects=True)
                 final_url = str(head_response.url)
                 total_size = int(head_response.headers.get('content-length', 0))
@@ -873,8 +905,15 @@ class GuiBackend:
                     self.log.info(f"文件下载完成: {dest_path} ({downloaded_size} 字节)")
                     return True
                     
-        except Exception as e:
-            self.log.error(f"直接下载失败: {self.stack_error(e)}")
-            if os.path.exists(dest_path):
-                os.remove(dest_path)
+        except httpx.HTTPStatusError as e:
+            self.log.error(f"HTTP错误: {e.response.status_code} - {e}")
             return False
+        except httpx.TimeoutException:
+            self.log.error("下载超时")
+            return False
+        except Exception as e:
+            self.log.error(f"下载失败: {self.stack_error(e)}")
+            return False
+        finally:
+            if os.path.exists(dest_path) and os.path.getsize(dest_path) == 0:
+                os.remove(dest_path)
