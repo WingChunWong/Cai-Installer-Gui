@@ -39,13 +39,14 @@ DEFAULT_CONFIG = {
 }
 
 def get_app_dir():
-    """获取程序运行目录（EXE或脚本所在目录）"""
-    if getattr(sys, 'frozen', False):
-        # 打包为EXE时，返回EXE所在目录
-        return Path(sys.executable).parent
+    if '__compiled__' in globals():
+        # 打包环境（运行 EXE）
+        exe_path = Path(sys.executable)
+        app_dir = exe_path.parent
     else:
-        # 开发模式，返回脚本所在目录
-        return Path(__file__).parent
+        # 开发环境（运行 .py 脚本）
+        app_dir = Path(__file__).parent
+    return app_dir
 
 app_dir = get_app_dir()
 
@@ -112,23 +113,26 @@ class GuiBackend:
     
     def gen_config_file(self):
         try:
-            config_path = app_dir / 'config.json'
+            config_path = app_dir / "config.json"
+            # 打印路径到日志，方便排查
+            self.log.info(f"尝试生成config.json到路径：{config_path}")
             with open(config_path, mode="w", encoding="utf-8") as f:
                 json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
             self.log.info('首次启动或配置重置，已生成config.json，请在"设置"中填写。')
             self.app_config = DEFAULT_CONFIG.copy()
         except Exception as e:
-            self.log.error(f'配置文件生成失败: {self.stack_error(e)}')
+            self.log.error(f'配置文件生成失败: 路径={config_path}, 错误={self.stack_error(e)}')
 
     def save_config(self):
         try:
-            config_path = app_dir / 'config.json'
+            config_path = app_dir / "config.json"
+            self.log.info(f"尝试保存config.json到路径：{config_path}")
             with open(config_path, mode="w", encoding="utf-8") as f:
                 config_to_save = DEFAULT_CONFIG.copy()
                 config_to_save.update(self.app_config)
                 json.dump(config_to_save, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            self.log.error(f'保存配置失败: {self.stack_error(e)}')
+            self.log.error(f'保存配置失败: 路径={config_path}, 错误={self.stack_error(e)}')
 
     def detect_steam_path(self) -> Path:
         try:
