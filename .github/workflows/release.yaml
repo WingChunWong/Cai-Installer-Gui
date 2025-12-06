@@ -1,6 +1,5 @@
-name: 发布 Release 时构建并上传产物
+name: Build & Release
 
-# 仅在新建 Release 时触发（不包括草稿和预发布）
 on:
   release:
     types: [published]
@@ -11,13 +10,13 @@ jobs:
   build-and-release:
     runs-on: windows-latest
     permissions:
-      contents: write # 允许上传 Release 资产
+      contents: write # Allow uploading Release assets
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 确保获取完整历史和标签
+          fetch-depth: 0 # Ensure full history and tags are fetched
 
       - name: Setup Python
         uses: actions/setup-python@v5
