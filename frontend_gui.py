@@ -9,15 +9,15 @@ from pathlib import Path
 import threading
 from typing import List
 try:
-    import httpx # type: ignore
+    import httpx
 except ImportError:
     messagebox.showerror("依赖缺失", "错误: httpx 库未安装。\n请在命令行中使用 'pip install httpx' 命令安装后重试。")
     sys.exit(1)
 import subprocess
 
 try:
-    import ttkbootstrap as ttk # type: ignore
-    from ttkbootstrap.constants import * # type: ignore
+    import ttkbootstrap as ttk
+    from ttkbootstrap.constants import *
 except ImportError:
     messagebox.showerror("依赖缺失", "错误: ttkbootstrap 库未安装。\n请在命令行中使用 'pip install ttkbootstrap' 命令安装后重试。")
     sys.exit(1)
@@ -34,7 +34,6 @@ except ImportError:
     version = "dev"
 
 class SimpleNotepad(tk.Toplevel):
-    """简单的文件编辑器"""
     def __init__(self, parent, filename, content, file_path):
         super().__init__(parent)
         self.transient(parent)
@@ -65,7 +64,6 @@ class SimpleNotepad(tk.Toplevel):
             messagebox.showerror("失败", f"保存文件失败: {e}", parent=self)
 
 class GameSelectionDialog(tk.Toplevel):
-    """游戏选择对话框"""
     def __init__(self, parent, games: List[dict], title="选择游戏"):
         super().__init__(parent)
         self.transient(parent)
@@ -110,7 +108,6 @@ class GameSelectionDialog(tk.Toplevel):
         self.destroy()
 
 class CaiInstallGUI(ttk.Window):
-    """主GUI类"""
     def __init__(self):
         super().__init__(themename="darkly", title=f"Cai Install GUI v{version}")
         self.geometry("1000x700")
@@ -123,15 +120,11 @@ class CaiInstallGUI(ttk.Window):
         self.backend = GuiBackend(self.log)
         self.create_menu()
         
-        # 设置为最大化
         self.state('zoomed')
-        
-        # 默认展开入库管理面板
         self.show_file_panel = True
         self.after(100, self.initialize_app)
     
     def setup_logging(self):
-        """设置日志系统"""
         logger = logging.getLogger('CaiInstallGUI')
         logger.setLevel(logging.INFO)
         
@@ -140,8 +133,6 @@ class CaiInstallGUI(ttk.Window):
                 super().__init__()
                 self.text_widget = text_widget
                 self.setFormatter(logging.Formatter('%(message)s'))
-                
-                # 配置标签颜色
                 self.text_widget.tag_config('INFO', foreground='white')
                 self.text_widget.tag_config('WARNING', foreground='yellow')
                 self.text_widget.tag_config('ERROR', foreground='red')
@@ -166,7 +157,6 @@ class CaiInstallGUI(ttk.Window):
         return logger
     
     def create_menu(self):
-        """创建菜单栏"""
         menu_bar = ttk.Menu(self)
         self.config(menu=menu_bar)
         
@@ -183,16 +173,12 @@ class CaiInstallGUI(ttk.Window):
         help_menu.add_command(label="关于", command=self.show_about_dialog)
     
     def create_widgets(self):
-        """创建主界面控件"""
-        # 主容器
         main_frame = ttk.Frame(self, padding=10)
         main_frame.pack(fill=BOTH, expand=True)
         
-        # 左侧面板
         left_frame = ttk.Frame(main_frame)
         left_frame.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 10))
         
-        # 输入区域
         input_frame = ttk.Labelframe(left_frame, text="游戏搜索与安装", padding=10)
         input_frame.pack(fill=X, pady=(0, 10))
         
@@ -203,14 +189,10 @@ class CaiInstallGUI(ttk.Window):
         self.search_button = ttk.Button(input_frame, text="搜索", command=self.start_game_search, width=8)
         self.search_button.grid(row=0, column=2, pady=5)
         
-        # 选项卡
         notebook = ttk.Notebook(left_frame)
         notebook.pack(fill=X, pady=5)
-        
-        # 保存notebook引用，供其他方法使用
         self.notebook = notebook
         
-        # 指定库安装
         tab1 = ttk.Frame(notebook, padding=10)
         notebook.add(tab1, text="从指定库安装")
         
@@ -228,12 +210,10 @@ class CaiInstallGUI(ttk.Window):
         self.repo_combobox.pack(side=LEFT, fill=X, expand=True)
         self.repo_combobox.current(0)
         
-        # 搜索所有库
         tab2 = ttk.Frame(notebook, padding=10)
         notebook.add(tab2, text="搜索所有Github库")
         ttk.Label(tab2, text="此模式将搜索所有已知的GitHub清单库").pack(fill=X)
         
-        # 按钮区域
         button_frame = ttk.Frame(left_frame)
         button_frame.pack(fill=X, pady=10)
         
@@ -243,11 +223,9 @@ class CaiInstallGUI(ttk.Window):
         self.manager_button = ttk.Button(button_frame, text="入库管理", command=self.toggle_file_panel, style='info')
         self.manager_button.pack(side=LEFT)
         
-        # 日志区域
         log_frame = ttk.Labelframe(left_frame, text="日志输出", padding=10)
         log_frame.pack(fill=BOTH, expand=True)
         
-        # 日志工具栏
         log_toolbar = ttk.Frame(log_frame)
         log_toolbar.pack(fill=X, pady=(0, 5))
         ttk.Button(log_toolbar, text="清空日志", command=self.clear_log).pack(side=LEFT)
@@ -257,27 +235,20 @@ class CaiInstallGUI(ttk.Window):
             log_frame, 
             wrap=tk.WORD, 
             state='disabled', 
-            font=("Consolas", 10)  # 这里修改字体和大小
+            font=("Consolas", 10)
         )
         self.log_text_widget.pack(fill=BOTH, expand=True)
         
-        # 状态栏
         self.status_bar = ttk.Label(self, text="正在初始化...", relief=SUNKEN, anchor=W, padding=5)
         self.status_bar.pack(side=BOTTOM, fill=X)
         
-        # 入库管理面板
         self.file_panel = self.create_file_panel(main_frame)
-        # 默认展开入库管理面板
         self.file_panel.pack(side=RIGHT, fill=Y)
-        
-        # 设置按钮样式为选中状态 - 使用bootstyle而不是style
         self.manager_button.configure(bootstyle="info-outline")
     
     def create_file_panel(self, parent):
-        """创建入库管理面板"""
         panel = ttk.Labelframe(parent, text="入库管理", padding=10)
         
-        # 按钮工具栏
         button_frame = ttk.Frame(panel)
         button_frame.pack(fill=X, pady=(0, 5))
         
@@ -289,7 +260,6 @@ class CaiInstallGUI(ttk.Window):
         for i in range(4):
             button_frame.columnconfigure(i, weight=1)
         
-        # 文件列表
         list_frame = ttk.Frame(panel)
         list_frame.pack(fill=BOTH, expand=True, pady=(5, 0))
         
@@ -305,13 +275,11 @@ class CaiInstallGUI(ttk.Window):
         return panel
     
     def clear_log(self):
-        """清空日志"""
         self.log_text_widget.configure(state='normal')
         self.log_text_widget.delete(1.0, tk.END)
         self.log_text_widget.configure(state='disabled')
     
     def copy_log(self):
-        """复制日志内容到剪贴板"""
         content = self.log_text_widget.get(1.0, tk.END)
         if content.strip():
             self.clipboard_clear()
@@ -319,7 +287,6 @@ class CaiInstallGUI(ttk.Window):
             messagebox.showinfo("成功", "日志内容已复制到剪贴板")
     
     def toggle_file_panel(self):
-        """切换入库管理面板显示"""
         if self.file_panel.winfo_ismapped():
             self.file_panel.pack_forget()
             self.geometry("800x700")
@@ -333,7 +300,6 @@ class CaiInstallGUI(ttk.Window):
             self.refresh_file_list()
     
     def refresh_file_list(self):
-        """刷新文件列表"""
         self.file_list.delete(0, tk.END)
         
         if not self.backend.steam_path or not self.backend.steam_path.exists():
@@ -358,14 +324,12 @@ class CaiInstallGUI(ttk.Window):
             self.file_list.insert(tk.END, f" 读取失败: {e}")
     
     def get_selected_files(self):
-        """获取选中的文件列表"""
         selected_indices = self.file_list.curselection()
         if not selected_indices:
             return []
         return [self.file_list.get(i).strip() for i in selected_indices]
     
     def delete_selected_file(self):
-        """删除选中的文件"""
         filenames = self.get_selected_files()
         if not filenames:
             messagebox.showinfo("提示", "请先在列表中选择要删除的文件。", parent=self)
@@ -400,7 +364,6 @@ class CaiInstallGUI(ttk.Window):
             messagebox.showwarning("部分失败", "以下文件删除失败:\n" + "\n".join(failed_files), parent=self)
     
     def view_selected_file(self):
-        """查看选中的文件"""
         filenames = self.get_selected_files()
         if not filenames:
             messagebox.showinfo("提示", "请选择一个文件进行查看。", parent=self)
@@ -423,13 +386,11 @@ class CaiInstallGUI(ttk.Window):
             messagebox.showerror("错误", f"读取文件失败: {e}", parent=self)
     
     def initialize_app(self):
-        """初始化应用"""
         self.print_banner()
         self.log.info("Cai Installer GUI版 - 正在初始化...")
         self.backend.load_config()
         self.update_unlocker_status()
         
-        # 刷新文件列表
         if self.show_file_panel:
             self.refresh_file_list()
         
@@ -437,7 +398,6 @@ class CaiInstallGUI(ttk.Window):
         self.log.info("本项目采用GNU GPLv3开源许可证，完全免费，请勿用于商业用途。")
     
     def print_banner(self):
-        """打印欢迎横幅"""
         banner = [
             r"   ____           _     ___                 _             _   _               ",
             r"  / ___|   __ _  (_)   |_ _|  _ __    ___  | |_    __ _  | | | |   ___   _ __ ",
@@ -451,7 +411,6 @@ class CaiInstallGUI(ttk.Window):
             self.log.info(line)
     
     def update_unlocker_status(self):
-        """更新解锁工具状态"""
         steam_path = self.backend.detect_steam_path()
         if not steam_path.exists():
             self.status_bar.config(text="Steam路径未找到！请在设置中指定。")
@@ -470,7 +429,6 @@ class CaiInstallGUI(ttk.Window):
             self.status_bar.config(text=f"Steam路径: {steam_path} | 解锁方式: {self.backend.unlocker_type.title()}")
     
     def handle_manual_selection(self):
-        """手动选择解锁工具"""
         dialog = ManualSelectionDialog(self, title="选择解锁工具")
         self.wait_window(dialog)
         
@@ -484,13 +442,9 @@ class CaiInstallGUI(ttk.Window):
             self.process_button.config(state=DISABLED)
     
     def start_game_search(self):
-        """开始游戏搜索"""
         if not self.processing_lock.acquire(blocking=False):
             self.log.warning("已在处理中，请等待当前任务完成。")
             return
-        
-        async def process_by_searching_all(self, client, app_id_inputs, github_repos):
-            raise NotImplementedError
 
         search_term = self.appid_entry.get().strip()
         if not search_term:
@@ -516,11 +470,9 @@ class CaiInstallGUI(ttk.Window):
         threading.Thread(target=thread_target, daemon=True).start()
     
     def search_finished(self):
-        """搜索完成后的回调"""
         self.search_button.config(state=NORMAL, text="搜索")
     
     def show_game_selection_dialog(self, games):
-        """显示游戏选择对话框"""
         if not games:
             self.log.warning("未找到匹配的游戏。")
             messagebox.showinfo("未找到", "未找到与搜索词匹配的游戏。", parent=self)
@@ -535,7 +487,6 @@ class CaiInstallGUI(ttk.Window):
             self.log.info(f"已选择游戏: {name} (AppID: {selected_game['appid']})")
     
     def start_processing(self):
-        """开始处理任务"""
         if not self.backend.unlocker_type:
             messagebox.showerror("错误", "未确定解锁工具！\n请先通过设置或重启程序解决解锁工具检测问题。")
             return
@@ -544,7 +495,6 @@ class CaiInstallGUI(ttk.Window):
             self.log.warning("已在处理中，请等待当前任务完成。")
             return
         
-        # 当ST自动更新模式启用时，默认使用浮动版本
         is_st_auto_update_mode = self.backend.is_steamtools() and self.backend.app_config.get("steamtools_only_lua", False)
         if is_st_auto_update_mode:
             self.backend.st_lock_manifest_version = False
@@ -575,7 +525,6 @@ class CaiInstallGUI(ttk.Window):
         threading.Thread(target=thread_target, daemon=True).start()
     
     def processing_finished(self):
-        """处理完成后的回调"""
         self.process_button.config(state=NORMAL, text="开始处理")
         self.appid_entry.config(state=NORMAL)
         self.search_button.config(state=NORMAL)
@@ -583,7 +532,6 @@ class CaiInstallGUI(ttk.Window):
         self.log.info("=" * 60 + "\n处理完成！您可以开始新的任务。")
     
     async def run_async_tasks(self, client: httpx.AsyncClient, tab_index: int):
-        """运行异步任务"""
         user_input = self.appid_entry.get().strip()
         if not user_input:
             self.log.error("输入不能为空！")
@@ -607,7 +555,6 @@ class CaiInstallGUI(ttk.Window):
             await self.backend.cleanup_temp_files()
     
     def on_closing(self):
-        """关闭窗口时的处理"""
         if self.processing_lock.locked():
             if messagebox.askyesno("退出", "正在处理任务，确定要强制退出吗？"):
                 os._exit(0)
@@ -615,12 +562,10 @@ class CaiInstallGUI(ttk.Window):
             self.destroy()
     
     def show_about_dialog(self):
-        """显示关于对话框"""
         messagebox.showinfo("关于", "Cai Install GUI\n\n一个用于Steam游戏清单获取和导入的工具\n\n作者: pvzcxw\n二改: WingChunWong")
     
     def show_settings_dialog(self):
-        """显示设置对话框"""
-        dialog = ttk.Toplevel(self) # type: ignore
+        dialog = ttk.Toplevel(self)
         dialog.title("编辑配置")
         dialog.geometry("500x250")
         dialog.transient(self)
@@ -666,7 +611,6 @@ class CaiInstallGUI(ttk.Window):
         frame.columnconfigure(1, weight=1)
     
     def restart_steam(self):
-        """手动重启Steam"""
         if not self.backend.steam_path or not self.backend.steam_path.exists():
             messagebox.showerror("错误", "未找到Steam安装路径！", parent=self)
             return
@@ -682,7 +626,6 @@ class CaiInstallGUI(ttk.Window):
         self._perform_steam_restart("手动重启")
     
     def auto_restart_steam(self, reason="操作完成"):
-        """自动重启Steam"""
         if not self.backend.app_config.get("auto_restart_steam", True):
             self.log.info(f"自动重启功能已禁用，请手动重启Steam以使{reason}生效。")
             return
@@ -700,11 +643,9 @@ class CaiInstallGUI(ttk.Window):
         threading.Thread(target=self._perform_steam_restart, args=(reason,), daemon=True).start()
     
     def _perform_steam_restart(self, reason):
-        """执行Steam重启"""
         try:
             steam_exe = self.backend.steam_path / "Steam.exe"
             
-            # 结束Steam进程
             try:
                 subprocess.run(['taskkill', '/F', '/IM', 'steam.exe', '/T'],
                              capture_output=True, shell=True, text=True)
@@ -714,7 +655,6 @@ class CaiInstallGUI(ttk.Window):
             import time
             time.sleep(3)
             
-            # 重新启动Steam
             subprocess.Popen([str(steam_exe)], shell=True)
             self.log.info(f"{reason}完成，已重新启动Steam")
             
@@ -727,7 +667,6 @@ class CaiInstallGUI(ttk.Window):
                 f"重启Steam失败:\n{e}\n请手动重启Steam。", parent=self))
 
 class ManualSelectionDialog(tk.Toplevel):
-    """手动选择解锁工具对话框"""
     def __init__(self, parent, title=None):
         super().__init__(parent)
         self.transient(parent)
