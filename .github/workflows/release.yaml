@@ -5,7 +5,6 @@ on:
     types: [published]
     tags:
       - "v*.*.*"
-  workflow_dispatch:
 
 jobs:
   build-and-release:
@@ -46,32 +45,10 @@ jobs:
           python-version: "3.13"
           architecture: "x64"
 
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~\AppData\Local\pip\Cache
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # 确保nuitka已安装
-          pip install nuitka
-
-      - name: Cache Nuitka build files
-        uses: actions/cache@v4
-        id: nuitka-cache
-        with:
-          path: |
-            frontend_gui.onefile-build
-            frontend_gui.build
-            frontend_gui.dist
-          key: ${{ runner.os }}-nuitka-${{ hashFiles('frontend_gui.py', 'requirements.txt', 'version.py', 'backend_gui.py') }}
-          restore-keys: |
-            ${{ runner.os }}-nuitka-
 
       - name: Generate Changelog
         run: |
@@ -82,9 +59,6 @@ jobs:
 
       - name: Build Executable with Nuitka
         run: |
-          # 设置Nuitka缓存相关的环境变量
-          $env:NUITKA_CACHE_DIR = "."
-
           # 构建命令
           python -m nuitka `
           --onefile `
@@ -110,8 +84,6 @@ jobs:
           # 清理dist目录（如果需要）
           if (Test-Path "frontend_gui.dist") { Remove-Item -Recurse -Force "frontend_gui.dist" }
         shell: pwsh
-        # 仅在缓存未命中时执行清理（当使用缓存时保留构建文件）
-        if: steps.nuitka-cache.outputs.cache-hit != 'true'
 
       - name: Upload Artifacts to Release
         uses: softprops/action-gh-release@v2
