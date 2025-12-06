@@ -38,10 +38,6 @@ DEFAULT_CONFIG = {
     "QA2": "温馨提示: 勾选'使用SteamTools进行清单更新'后，对于ST用户，程序将仅下载和更新LUA脚本，而不再下载清单文件(.manifest)。"
 }
 
-import sys
-import os
-from pathlib import Path
-
 def get_app_dir():
     """
     获取应用程序的根目录（存放config.json的位置）。
