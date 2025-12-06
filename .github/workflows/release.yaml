@@ -7,6 +7,10 @@ on:
       - "v*.*.*"
   workflow_dispatch:
     inputs:
+      versionTag:
+        description: "手动输入版本号（如v1.0.0）"
+        required: true
+        type: string
       isHotfix:
         description: "是否为hotfix版本"
         required: true
@@ -38,12 +42,12 @@ jobs:
       - name: Set Version Variables
         id: version
         run: |
-          # 提取基础标签名（如v1.2.3）
-          echo "BASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
-          # 判断是否为hotfix
+          # 区分触发方式：自动触发用标签，手动触发用用户输入
           if "${{ github.event_name }}" == "workflow_dispatch"; then
+            echo "BASE_TAG=${{ github.event.inputs.versionTag }}" >> $GITHUB_ENV
             echo "IS_HOTFIX=${{ github.event.inputs.isHotfix }}" >> $GITHUB_ENV
           else
+            echo "BASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
             echo "IS_HOTFIX=false" >> $GITHUB_ENV
           fi
           # 生成带hotfix标识的完整版本号
@@ -54,13 +58,10 @@ jobs:
           fi
         shell: bash
 
-      # 新增：生成version.py文件，用于程序内部读取版本
       - name: Generate version.py
         run: |
-          # 写入版本信息到version.py
           echo "__version__ = \"${{ env.FULL_VERSION }}\"" > version.py
-          # 打印版本文件内容，用于验证
-          cat version.py
+          cat version.py  # 验证版本内容
         shell: bash
 
       - name: Generate Changelog
@@ -102,4 +103,4 @@ jobs:
             ${{ env.IS_HOTFIX == 'true' && 'Cai-Installer-Gui_${{ env.BASE_TAG }}_hotfix.exe' || 'Cai-Installer-Gui_${{ env.BASE_TAG }}.exe' }}
           body_path: CHANGELOG.md
           name: ${{ env.BASE_TAG }} ${{ env.IS_HOTFIX == 'true' && '(Hotfix)' || '' }}
-          tag_name: ${{ env.BASE_TAG }}
+          tag_name: ${{ env.BASE_TAG }} # 复用版本号作为标签（手动触发时需确保标签存在或创建）
