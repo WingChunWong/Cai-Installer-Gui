@@ -11,7 +11,8 @@ from tkinter import ttk, messagebox, scrolledtext
 import threading
 from typing import List
 import subprocess
-import tempfile         
+import tempfile
+import re   
 
 # 版本信息
 try:
@@ -1051,8 +1052,8 @@ class CaiInstallGUI:
         dialog.transient(self.root)
         
         # 设置窗口大小
-        dialog.geometry("500x450")
-        dialog.minsize(800, 700)
+        dialog.geometry("650x600")
+        dialog.minsize(1000, 700)
         
         # 居中显示
         dialog.update_idletasks()
@@ -1060,9 +1061,9 @@ class CaiInstallGUI:
         parent_y = self.root.winfo_y()
         parent_width = self.root.winfo_width()
         parent_height = self.root.winfo_height()
-        x = parent_x + (parent_width - 600) // 2
-        y = parent_y + (parent_height - 550) // 2
-        dialog.geometry(f"600x550+{x}+{y}")
+        x = parent_x + (parent_width - 800) // 2
+        y = parent_y + (parent_height - 650) // 2
+        dialog.geometry(f"650x600+{x}+{y}")
         
         # 主框架
         main_frame = ttk.Frame(dialog, padding=20)
@@ -1098,14 +1099,19 @@ class CaiInstallGUI:
             region = self.backend.last_detected_region
         
         # 格式化地区显示
-        region_display = "中国大陆" if region == 'cn' else region.replace('not_cn_', '')
+        if region == 'cn':
+            region_display = "中国大陆"
+        elif region.startswith('not_cn_'):
+            region_display = region.replace('not_cn_', '')
+        else:
+            region_display = region
         
         # 根据地区决定使用的源
         if os.environ.get('IS_CN') == 'yes':
-            network_text = f"您的IP归属地为{region_display}，使用镜像源"
+            network_text = f"检测地区: {region_display}，使用镜像源"
             network_color = 'green'
         else:
-            network_text = f"您的IP归属地为{region_display}，使用GitHub源"
+            network_text = f"检测地区: {region_display}，使用GitHub源"
             network_color = 'blue'
         
         network_label = ttk.Label(network_frame,
@@ -1114,7 +1120,7 @@ class CaiInstallGUI:
                                 foreground=network_color)
         network_label.pack(anchor=tk.W)
         
-        # 更新时间
+        # 更新时间 (UTC+8)
         if update_info.get('published_at'):
             try:
                 pub_time = update_info['published_at']
@@ -1138,21 +1144,30 @@ class CaiInstallGUI:
             except Exception as e:
                 self.log.debug(f"解析发布时间失败: {e}")
         
-        # 更新内容
+        # 更新内容标题
         ttk.Label(main_frame, 
                 text="更新内容:",
                 font=('Consolas', 11, 'bold')).pack(anchor=tk.W, pady=(0, 5))
         
+        # 创建文本区域，并配置Markdown样式
         notes_text = scrolledtext.ScrolledText(
             main_frame,
             wrap=tk.WORD,
-            height=10,
+            height=12,
             font=('Consolas', 10),
             relief=tk.FLAT,
-            borderwidth=1
+            borderwidth=1,
+            background='#f9f9f9'
         )
         notes_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
-        notes_text.insert(tk.END, update_info.get('release_notes', '暂无更新说明'))
+        
+        # 配置Markdown样式标签
+        self._setup_markdown_tags(notes_text)
+        
+        # 插入Markdown内容
+        release_notes = update_info.get('release_notes', '暂无更新说明')
+        self._insert_markdown_content(notes_text, release_notes)
+        
         notes_text.configure(state='disabled')
         
         # 按钮区域
@@ -1170,6 +1185,188 @@ class CaiInstallGUI:
                                 command=lambda: self.start_update(dialog, update_info['download_url']),
                                 style='Accent.TButton')
         update_btn.pack(side=tk.RIGHT)
+
+    def _setup_markdown_tags(self, text_widget):
+        """配置Markdown标签样式"""
+        # 标题样式
+        text_widget.tag_configure('h1', font=('Consolas', 14, 'bold'), foreground='#2c3e50', spacing3=10)
+        text_widget.tag_configure('h2', font=('Consolas', 12, 'bold'), foreground='#34495e', spacing3=8)
+        text_widget.tag_configure('h3', font=('Consolas', 11, 'bold'), foreground='#7f8c8d', spacing3=6)
+        
+        # 文本样式
+        text_widget.tag_configure('bold', font=('Consolas', 10, 'bold'))
+        text_widget.tag_configure('italic', font=('Consolas', 10, 'italic'))
+        text_widget.tag_configure('bold_italic', font=('Consolas', 10, 'bold italic'))
+        
+        # 内联代码 - 使用背景色和边距模拟效果，但移除不支持的padding
+        text_widget.tag_configure('code', font=('Consolas', 9), background='#e8e8e8',
+                                borderwidth=1, relief='solid')
+        
+        # 代码块 - 移除不支持的padding，使用边距和背景
+        text_widget.tag_configure('code_block', font=('Consolas', 9), background='#f5f5f5',
+                                lmargin1=20, lmargin2=20, rmargin=20,
+                                borderwidth=1, relief='solid', spacing1=5, spacing3=5)
+        
+        # 链接样式
+        text_widget.tag_configure('link', font=('Consolas', 10, 'underline'), foreground='#3498db')
+        
+        # 列表样式
+        text_widget.tag_configure('bullet', lmargin1=20, lmargin2=40)
+        text_widget.tag_configure('numbered', lmargin1=20, lmargin2=40)
+        
+        # 引用样式 - 移除padding，使用边距
+        text_widget.tag_configure('blockquote', font=('Consolas', 10, 'italic'), 
+                                foreground='#7f8c8d', lmargin1=30, lmargin2=50,
+                                borderwidth=0, selectbackground='#f0f0f0')
+
+    def _insert_markdown_content(self, text_widget, markdown_text):
+        """插入并渲染Markdown内容"""
+        if not markdown_text:
+            text_widget.insert(tk.END, "暂无更新说明")
+            return
+        
+        lines = markdown_text.split('\n')
+        in_code_block = False
+        code_block_content = []
+        list_level = 0
+        numbered_list_counter = 1
+        
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            
+            # 处理代码块
+            if line_stripped.startswith('```'):
+                if not in_code_block:
+                    # 开始代码块
+                    in_code_block = True
+                    code_block_content = []
+                    # 添加空行
+                    if i > 0:
+                        text_widget.insert(tk.END, '\n')
+                else:
+                    # 结束代码块
+                    in_code_block = False
+                    if code_block_content:
+                        # 插入代码块内容
+                        text_widget.insert(tk.END, '\n'.join(code_block_content) + '\n', 'code_block')
+                    continue
+            
+            if in_code_block:
+                code_block_content.append(line)
+                continue
+            
+            # 处理空行
+            if not line_stripped:
+                text_widget.insert(tk.END, '\n')
+                list_level = 0
+                numbered_list_counter = 1
+                continue
+            
+            # 处理标题
+            if line_stripped.startswith('#'):
+                heading_level = 0
+                while heading_level < len(line) and line[heading_level] == '#':
+                    heading_level += 1
+                
+                heading_text = line[heading_level:].strip()
+                if heading_level <= 3:
+                    tag = f'h{heading_level}'
+                    if i > 0:
+                        text_widget.insert(tk.END, '\n')
+                    text_widget.insert(tk.END, heading_text + '\n', tag)
+                else:
+                    # 四级及以下标题当作普通文本
+                    text_widget.insert(tk.END, heading_text + '\n')
+                continue
+            
+            # 处理引用
+            if line_stripped.startswith('>'):
+                quote_text = line[1:].strip()
+                text_widget.insert(tk.END, quote_text + '\n', 'blockquote')
+                continue
+            
+            # 处理列表
+            if line_stripped.startswith('- ') or line_stripped.startswith('* '):
+                bullet_text = line_stripped[2:]
+                text_widget.insert(tk.END, '• ' + bullet_text + '\n', 'bullet')
+                list_level = 1
+                continue
+            
+            if re.match(r'^\d+\.\s+', line_stripped):
+                # 移除数字前缀
+                match = re.match(r'^(\d+)\.\s+(.*)', line_stripped)
+                if match:
+                    item_text = match.group(2)
+                    text_widget.insert(tk.END, f'{numbered_list_counter}. {item_text}\n', 'numbered')
+                    numbered_list_counter += 1
+                    list_level = 1
+                continue
+            
+            # 处理普通段落（应用内联样式）
+            self._insert_inline_styled_text(text_widget, line, list_level > 0)
+            text_widget.insert(tk.END, '\n')
+        
+        # 确保末尾有空行
+        text_widget.insert(tk.END, '\n')
+
+    def _insert_inline_styled_text(self, text_widget, text, in_list=False):
+        """插入带内联样式的文本"""
+        # 处理内联代码、粗体、斜体、链接等
+        patterns = [
+            (r'`([^`]+)`', 'code'),  # 内联代码
+            (r'\*\*\*([^*]+)\*\*\*', 'bold_italic'),  # 粗斜体
+            (r'\*\*([^*]+)\*\*', 'bold'),  # 粗体
+            (r'\*([^*]+)\*', 'italic'),  # 斜体
+            (r'!\[([^\]]+)\]\(([^)]+)\)', 'image'),  # 图片（暂不处理）
+            (r'\[([^\]]+)\]\(([^)]+)\)', 'link'),  # 链接
+        ]
+        
+        # 如果需要列表缩进
+        if in_list:
+            text_widget.insert(tk.END, '  ')
+        
+        # 解析并应用样式
+        last_pos = 0
+        i = 0
+        
+        while i < len(text):
+            matched = False
+            
+            for pattern, tag in patterns:
+                regex = re.compile(pattern)
+                match = regex.match(text, i)
+                
+                if match:
+                    # 插入之前的普通文本
+                    if i > last_pos:
+                        plain_text = text[last_pos:i]
+                        text_widget.insert(tk.END, plain_text)
+                    
+                    # 插入带样式的文本
+                    if tag == 'link':
+                        link_text = match.group(1)
+                        link_url = match.group(2)
+                        text_widget.insert(tk.END, link_text, tag)
+                        # 这里可以添加点击事件，但需要更复杂的处理
+                    elif tag == 'image':
+                        # 跳过图片
+                        pass
+                    else:
+                        styled_text = match.group(1)
+                        text_widget.insert(tk.END, styled_text, tag)
+                    
+                    last_pos = i + len(match.group(0))
+                    i = last_pos
+                    matched = True
+                    break
+            
+            if not matched:
+                i += 1
+        
+        # 插入剩余的普通文本
+        if last_pos < len(text):
+            plain_text = text[last_pos:]
+            text_widget.insert(tk.END, plain_text)
 
     def start_update(self, dialog, download_url):
         """开始更新过程"""
