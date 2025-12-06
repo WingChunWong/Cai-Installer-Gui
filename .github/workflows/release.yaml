@@ -73,13 +73,13 @@ jobs:
 
       - name: Rename Artifact (with Version Tag)
         run: |
-          ren frontend_gui.exe "Cai-Installer-Gui_${{ github.ref_name }}.exe"
+          ren frontend_gui.exe "Cai-Installer-Gui.exe"
         shell: pwsh
         # github.ref_name 将会是类似 v1.2.3 的标签名
       - name: Upload Artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            Cai-Installer-Gui_${{ github.ref_name }}.exe
+            Cai-Installer-Gui.exe
           body_path: CHANGELOG.md
           name: ${{ github.ref_name }} # 发布名称与标签匹配
