@@ -19,6 +19,24 @@ jobs:
           fetch-depth: 0 # 确保获取完整的历史和标签
           persist-credentials: true # 保留凭据用于后续提交
 
+      - name: Cache Python tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\hostedtoolcache\windows\Python\*
+            C:\hostedtoolcache\windows\PyPy\*
+          key: ${{ runner.os }}-python-tools-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-python-tools-
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Generate version.py
         run: |
           # 从标签提取版本号（去除前缀v）
@@ -34,7 +52,7 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git add version.py
-          git commit -m "🔧 chore: update version.py to ${{ github.ref_name }} [skip ci]"
+          git commit -m "🔧 chore: update version to ${{ github.ref_name }}"
           git push origin HEAD:main
         shell: bash
         continue-on-error: true # 即使提交失败也不中断工作流（如文件无变化时）
