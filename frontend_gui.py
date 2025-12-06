@@ -257,43 +257,156 @@ class UpdateManager:
             
             self.log.info(f"更新文件将保存到: {update_path}")
             
-            # 创建临时文件用于下载
-            temp_path = update_dir / f"temp_{update_exe_name}"
+            # 创建临时文件用于下载 - 修复临时文件名
+            temp_suffix = ".tmp"
+            temp_path = update_dir / f"{update_exe_name}{temp_suffix}"
+            
+            # 如果临时文件已存在，先删除
+            if temp_path.exists():
+                temp_path.unlink()
             
             # 下载更新
             self.log.info(f"开始下载更新文件...")
             
+            # 根据地区选择下载源
             if os.environ.get('IS_CN') == 'yes':
                 self.log.info("检测到中国大陆地区，使用镜像下载")
                 # 尝试镜像下载
                 mirror_url = self.backend.convert_github_to_mirror(download_url)
                 if mirror_url:
-                    success = await self.backend.download_update_direct(
+                    success = await self.download_update_direct(
                         mirror_url, str(temp_path), progress_callback
                     )
-                    if success:
-                        # 重命名临时文件
-                        if temp_path.exists():
-                            shutil.move(temp_path, update_path)
+                    if success and temp_path.exists():
+                        # 重命名临时文件为最终文件名
+                        self.rename_temp_to_final(temp_path, update_path)
                         return str(update_path)
             
             # 如果镜像下载失败或不在中国大陆，使用原地址
             self.log.info("使用GitHub官方源下载")
-            success = await self.backend.download_update_direct(
+            success = await self.download_update_direct(
                 download_url, str(temp_path), progress_callback
             )
             
-            if success:
-                # 重命名临时文件
-                if temp_path.exists():
-                    shutil.move(temp_path, update_path)
+            if success and temp_path.exists():
+                # 重命名临时文件为最终文件名
+                self.rename_temp_to_final(temp_path, update_path)
                 return str(update_path)
             
             return ""
             
         except Exception as e:
             self.log.error(f"下载更新失败: {str(e)}")
+            # 清理可能的临时文件
+            try:
+                if 'temp_path' in locals() and temp_path.exists():
+                    temp_path.unlink()
+            except:
+                pass
             return ""
+    
+    def rename_temp_to_final(self, temp_path: Path, final_path: Path):
+        """重命名临时文件为最终文件名"""
+        try:
+            # 如果目标文件已存在，先删除
+            if final_path.exists():
+                final_path.unlink()
+            
+            # 重命名文件
+            temp_path.rename(final_path)
+            self.log.info(f"已重命名临时文件: {temp_path.name} -> {final_path.name}")
+            
+            # 验证文件存在
+            if final_path.exists():
+                file_size = final_path.stat().st_size
+                self.log.info(f"更新文件下载成功: {final_path.name} ({file_size} 字节)")
+            else:
+                self.log.error(f"重命名后文件不存在: {final_path}")
+                
+        except Exception as e:
+            self.log.error(f"重命名文件失败: {e}")
+            # 尝试复制方式
+            try:
+                shutil.copy2(temp_path, final_path)
+                self.log.info(f"已通过复制方式保存文件: {final_path.name}")
+                # 删除临时文件
+                temp_path.unlink()
+            except Exception as e2:
+                self.log.error(f"复制文件失败: {e2}")
+                raise
+    
+    async def download_update_direct(self, url: str, dest_path: str, progress_callback=None) -> bool:
+        """直接下载更新文件（带进度回调）- 修复进度回调参数"""
+        try:
+            self.log.info(f"下载更新: {url}")
+            
+            async with httpx.AsyncClient(
+                timeout=60,
+                follow_redirects=True,
+                headers={'User-Agent': 'Mozilla/5.0'}
+            ) as client:
+                # 获取文件大小
+                head_response = await client.head(url, follow_redirects=True)
+                total_size = int(head_response.headers.get('content-length', 0))
+                
+                if total_size:
+                    self.log.info(f"文件大小: {total_size / 1024 / 1024:.2f} MB")
+                
+                # 下载文件
+                async with client.stream('GET', url) as response:
+                    response.raise_for_status()
+                    
+                    downloaded_size = 0
+                    
+                    with open(dest_path, 'wb') as f:
+                        async for chunk in response.aiter_bytes(chunk_size=8192):
+                            f.write(chunk)
+                            downloaded_size += len(chunk)
+                            
+                            # 更新进度 - 修复：progress_callback可能期望不同的参数格式
+                            if progress_callback and total_size > 0:
+                                # 尝试不同的回调格式
+                                try:
+                                    # 第一种格式：单个进度值 (0-100)
+                                    percent = (downloaded_size / total_size) * 100
+                                    progress_callback(percent)
+                                except TypeError:
+                                    try:
+                                        # 第二种格式：当前大小和总大小
+                                        progress_callback(downloaded_size, total_size)
+                                    except TypeError:
+                                        # 第三种格式：自定义格式
+                                        progress_callback(
+                                            downloaded_size, total_size, 
+                                            downloaded_size / total_size
+                                        )
+                    
+                    self.log.info(f"下载完成: {dest_path} ({downloaded_size} 字节)")
+                    
+                    # 验证文件大小
+                    if total_size > 0 and downloaded_size != total_size:
+                        self.log.warning(f"下载大小不匹配: 期望 {total_size}, 实际 {downloaded_size}")
+                    
+                    return True
+                    
+        except httpx.HTTPStatusError as e:
+            self.log.error(f"HTTP错误: {e.response.status_code}")
+            # 清理不完整的文件
+            try:
+                if os.path.exists(dest_path):
+                    os.remove(dest_path)
+            except:
+                pass
+            return False
+        except Exception as e:
+            self.log.error(f"下载失败: {str(e)}")
+            # 清理不完整的文件
+            try:
+                if os.path.exists(dest_path):
+                    os.remove(dest_path)
+            except:
+                pass
+            return False
     
     def create_update_script(self, current_exe_path: str, new_exe_path: str) -> str:
         """创建更新脚本（批处理文件）用于覆盖旧版本"""
@@ -312,6 +425,11 @@ class UpdateManager:
             script_name = f"update_script_{timestamp}.bat"
             script_path = script_dir / script_name
             
+            # 确保路径使用双引号包裹，处理空格
+            current_exe_quoted = f'"{current_exe_path}"'
+            new_exe_quoted = f'"{new_exe_path}"'
+            script_dir_quoted = f'"{script_dir}"'
+            
             # 创建批处理脚本
             bat_content = f"""@echo off
 chcp 65001 >nul
@@ -319,43 +437,76 @@ echo 正在更新 Cai Install GUI...
 echo 请稍候，这可能需要几秒钟时间...
 
 :: 等待当前程序退出
-timeout /t 2 /nobreak >nul
+timeout /t 3 /nobreak >nul
 
-:: 尝试复制新版本到原位置
+:: 检查新版本文件是否存在
+if not exist {new_exe_quoted} (
+    echo 错误: 更新文件不存在!
+    echo {new_exe_quoted}
+    pause
+    exit /b 1
+)
+
+:: 检查当前程序文件是否存在
+if not exist {current_exe_quoted} (
+    echo 错误: 当前程序文件不存在!
+    echo {current_exe_quoted}
+    pause
+    exit /b 1
+)
+
+echo 正在复制新版本...
 set retry_count=0
 :retry_copy
-if exist "{new_exe_path}" (
-    copy /Y "{new_exe_path}" "{current_exe_path}" >nul 2>&1
-    if %errorlevel% neq 0 (
-        set /a retry_count=retry_count+1
-        if %retry_count% lss 5 (
-            timeout /t 1 /nobreak >nul
-            goto retry_copy
-        )
+copy /Y {new_exe_quoted} {current_exe_quoted} >nul 2>&1
+if %errorlevel% neq 0 (
+    set /a retry_count=retry_count+1
+    if %retry_count% lss 5 (
+        echo 复制失败，正在重试 (尝试 %retry_count%/5)...
+        timeout /t 1 /nobreak >nul
+        goto retry_copy
     )
 )
 
 :: 检查是否复制成功
-if exist "{current_exe_path}" (
+if exist {current_exe_quoted} (
     echo 更新成功！正在启动新版本...
+    
+    :: 延迟确保文件写入完成
+    timeout /t 1 /nobreak >nul
+    
     :: 删除临时文件
-    if exist "{new_exe_path}" del "{new_exe_path}"
-    if exist "{script_path}" del "{script_path}"
+    if exist {new_exe_quoted} (
+        echo 清理更新文件...
+        del {new_exe_quoted}
+    )
+    
+    :: 删除当前脚本
+    if exist "{script_path}" (
+        echo 清理更新脚本...
+        del "{script_path}"
+    )
     
     :: 启动新版本
-    start "" "{current_exe_path}"
+    echo 正在启动新版本...
+    start "" {current_exe_quoted}
     
-    :: 删除更新目录中的其他旧文件
-    forfiles /p "{script_dir}" /m "Cai-Installer-GUI-Update-*.exe" /d -3 /c "cmd /c del @path"
-    forfiles /p "{script_dir}" /m "update_script_*.bat" /d -3 /c "cmd /c del @path"
+    :: 清理旧的更新文件（保留最近3天）
+    echo 清理旧更新文件...
+    forfiles /p {script_dir_quoted} /m "Cai-Installer-GUI-Update-*.exe" /d -3 /c "cmd /c echo 删除 @file & del @path" >nul
+    forfiles /p {script_dir_quoted} /m "update_script_*.bat" /d -3 /c "cmd /c echo 删除 @file & del @path" >nul
+    
+    echo 更新完成！
 ) else (
-    echo 更新失败！请手动更新。
+    echo 更新失败！
+    echo 请手动复制文件:
+    echo 从: {new_exe_quoted}
+    echo 到: {current_exe_quoted}
     pause
 )
 
 exit
 """
-            
             with open(script_path, 'w', encoding='utf-8') as f:
                 f.write(bat_content)
             
