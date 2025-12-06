@@ -398,15 +398,18 @@ class GuiBackend:
             else:
                 # 成功检测到地理位置
                 if current_region == 'cn':
-                    self.log.info("检测到中国大陆地区")
+                    if current_region != self.last_detected_region:
+                        self.log.info("检测到中国大陆地区，使用镜像源")
                 elif current_region.startswith('not_cn_'):
                     country = current_region.replace('not_cn_', '')
                     if country == 'Unknown':
-                        self.log.info("检测到非中国大陆地区\n您的IP归属地为")
+                        if current_region != self.last_detected_region:
+                            self.log.info("检测到非中国大陆地区\n使用GitHub源")
                     else:
-                        self.log.info(f"检测到非中国大陆地区\n您的IP归属地为{country}")
+                        if current_region != self.last_detected_region:
+                            self.log.info(f"检测到非中国大陆地区\n您的IP归属地为{country}\n使用GitHub源")
             
-            # 只有在地区发生变化时才更新环境变量和日志
+            # 只有在地区发生变化时才更新环境变量
             if current_region != self.last_detected_region:
                 self.last_detected_region = current_region
                 
@@ -414,16 +417,11 @@ class GuiBackend:
                 is_cn = 'yes' if current_region == 'cn' else 'no'
                 os.environ['IS_CN'] = is_cn
                 
-                # 记录最终决策
-                if is_cn == 'yes':
-                    self.log.info("使用镜像源")
-                else:
-                    self.log.info("使用GitHub源")
             else:
                 # 如果地区没有变化，保持现有环境变量
                 if 'IS_CN' not in os.environ:
                     os.environ['IS_CN'] = 'yes' if current_region == 'cn' else 'no'
-                
+                    
         except Exception as e:
             # 只有在之前没有记录过地区时才输出错误日志
             if self.last_detected_region is None:
