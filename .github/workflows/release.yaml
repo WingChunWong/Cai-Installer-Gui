@@ -38,18 +38,19 @@ jobs:
       - name: Build Executable with Nuitka
         run: |
           python -m nuitka ^
-            --onefile ^
-            --windows-console-mode=disable ^
-            --enable-plugin=tk-inter ^
-            --include-package=ttkbootstrap,httpx,aiofiles,vdf ^
-            --include-module=backend_gui ^
-            frontend_gui.py
-        shell: cmd
+          --onefile ^
+          --windows-console-mode=disable ^
+          --enable-plugin=tk-inter ^
+          --include-package=ttkbootstrap,httpx,aiofiles,vdf ^
+          --include-module=backend_gui ^
+          --assume-yes-for-downloads ^
+          frontend_gui.py
+        shell: pwsh
 
       - name: Rename Artifact (with Version Tag)
         run: |
           ren frontend_gui.exe "Cai-Installer-Gui_${{ github.ref_name }}.exe"
-        shell: cmd
+        shell: pwsh
         # github.ref_name will automatically get the current Release tag (e.g., v1.0.0)
       - name: Upload Artifacts to Release
         uses: softprops/action-gh-release@v2
