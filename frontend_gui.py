@@ -28,6 +28,11 @@ except ImportError:
     messagebox.showerror("文件缺失", "错误: backend_gui.py 文件缺失。\n请确保主程序和后端文件在同一个目录下。")
     sys.exit(1)
 
+try:
+    from version import version
+except ImportError:
+    version = "dev"
+
 class SimpleNotepad(tk.Toplevel):
     """简单的文件编辑器"""
     def __init__(self, parent, filename, content, file_path):
@@ -117,6 +122,8 @@ class CaiInstallGUI(ttk.Window):
         self.log = self.setup_logging()
         self.backend = GuiBackend(self.log)
         self.create_menu()
+
+        super().__init__(themename="darkly", title=f"Cai Install GUI v{version}")
         
         # 设置为最大化
         self.state('zoomed')
