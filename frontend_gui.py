@@ -430,7 +430,6 @@ class CaiInstallGUI(ttk.Window):
         self.log.info("Cai Installer GUI版 - 正在初始化...")
         self.backend.load_config()
         self.update_unlocker_status()
-        self.log.info(f"程序版本: {__version__}")
         
         # 刷新文件列表
         if self.show_file_panel:
