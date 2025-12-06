@@ -127,7 +127,8 @@ def main():
         lines.append("")
 
     output = "\n".join(lines)
-    print(output)
+    # Write to stdout with UTF-8 encoding to avoid Windows encoding issues
+    sys.stdout.buffer.write(output.encode('utf-8'))
 
     # Write to file if environment variable CHANGELOG_FILE is set
     out_file = os.environ.get("CHANGELOG_FILE")
