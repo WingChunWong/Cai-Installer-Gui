@@ -5,17 +5,24 @@ on:
     types: [published]
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      isHotfix:
+        description: "是否为hotfix版本"
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   build-and-release:
     runs-on: windows-latest
     permissions:
-      contents: write # 允许上传发布内容
+      contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 确保获取完整的历史和标签
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -28,22 +35,41 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 新增步骤：生成版本信息文件
-      - name: Generate Version File
+      - name: Set Version Variables
+        id: version
         run: |
-          # 从标签中提取版本号，去除前缀v
-          VERSION=${{ github.ref_name }}
-          VERSION=${VERSION:1}
-          echo "version = '$VERSION'" > version.py
-          echo "Generated version.py with version: $VERSION"
+          # 提取基础标签名（如v1.2.3）
+          echo "BASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
+          # 判断是否为hotfix
+          if "${{ github.event_name }}" == "workflow_dispatch"; then
+            echo "IS_HOTFIX=${{ github.event.inputs.isHotfix }}" >> $GITHUB_ENV
+          else
+            echo "IS_HOTFIX=false" >> $GITHUB_ENV
+          fi
+          # 生成带hotfix标识的完整版本号
+          if [ "${{ env.IS_HOTFIX }}" = "true" ]; then
+            echo "FULL_VERSION=${{ env.BASE_TAG }}-hotfix" >> $GITHUB_ENV
+          else
+            echo "FULL_VERSION=${{ env.BASE_TAG }}" >> $GITHUB_ENV
+          fi
+        shell: bash
+
+      # 新增：生成version.py文件，用于程序内部读取版本
+      - name: Generate version.py
+        run: |
+          # 写入版本信息到version.py
+          echo "__version__ = \"${{ env.FULL_VERSION }}\"" > version.py
+          # 打印版本文件内容，用于验证
+          cat version.py
         shell: bash
 
       - name: Generate Changelog
         run: |
-          python scripts/generate_changelog.py "${{ github.ref_name }}" > CHANGELOG.md
+          python scripts/generate_changelog.py "${{ env.BASE_TAG }}" > CHANGELOG.md
         shell: bash
         env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REF_NAME: ${{ env.BASE_TAG }}
+          IS_HOTFIX: ${{ env.IS_HOTFIX }}
 
       - name: Build Executable with Nuitka
         run: |
@@ -53,20 +79,27 @@ jobs:
           --enable-plugin=tk-inter `
           --include-package=ttkbootstrap,httpx,aiofiles,vdf `
           --include-module=backend_gui `
-          --include-module=version `
+          --include-module=version  # 确保version.py被打包进可执行文件
           --assume-yes-for-downloads `
           frontend_gui.py
         shell: pwsh
 
       - name: Rename Artifact (with Version Tag)
         run: |
-          ren frontend_gui.exe "Cai-Installer-Gui_${{ github.ref_name }}.exe"
+          $baseTag = "${{ env.BASE_TAG }}"
+          $isHotfix = "${{ env.IS_HOTFIX }}" -eq "true"
+          if ($isHotfix) {
+            ren frontend_gui.exe "Cai-Installer-Gui_${baseTag}_hotfix.exe"
+          } else {
+            ren frontend_gui.exe "Cai-Installer-Gui_${baseTag}.exe"
+          }
         shell: pwsh
-        # github.ref_name 将会是类似 v1.2.3 的标签名
+
       - name: Upload Artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            Cai-Installer-Gui_${{ github.ref_name }}.exe
+            ${{ env.IS_HOTFIX == 'true' && 'Cai-Installer-Gui_${{ env.BASE_TAG }}_hotfix.exe' || 'Cai-Installer-Gui_${{ env.BASE_TAG }}.exe' }}
           body_path: CHANGELOG.md
-          name: ${{ github.ref_name }} # 发布名称与标签匹配
+          name: ${{ env.BASE_TAG }} ${{ env.IS_HOTFIX == 'true' && '(Hotfix)' || '' }}
+          tag_name: ${{ env.BASE_TAG }}
