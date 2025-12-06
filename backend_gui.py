@@ -193,7 +193,7 @@ class GuiBackend:
             self.log.error(f'检查GitHub API速率时出错: {e}')
             return False
 
-    async def checkcn(self, client: httpx.AsyncClient = None):
+    async def checkcn(self, client: httpx.AsyncClient = None): # type: ignore
         """检测是否在中国大陆"""
         try:
             # 如果client为None，创建新的client
@@ -776,59 +776,44 @@ class GuiBackend:
         try:
             self.log.info(f"开始下载更新，检测网络环境...")
             
-            # 检查是否在中国大陆
-            if os.environ.get('IS_CN') == 'yes':
-                self.log.info("检测到中国大陆网络，尝试使用镜像下载")
-                
-                # 尝试解析GitHub release URL以获取镜像地址
-                mirror_url = self.convert_github_to_mirror(url)
-                if mirror_url:
-                    self.log.info(f"使用镜像地址: {mirror_url}")
-                    urls_to_try = [mirror_url, url]  # 先尝试镜像，失败再尝试原始地址
-                else:
-                    self.log.warning("无法转换为镜像地址，使用原始地址")
-                    urls_to_try = [url]
-            else:
-                self.log.info("非中国大陆网络，使用原始GitHub地址")
-                urls_to_try = [url]
+            # 尝试使用镜像方案
+            success = await self._try_mirror_download(url, dest_path)
+            if success:
+                return True
             
-            # 尝试所有URL
-            for download_url in urls_to_try:
-                try:
-                    self.log.info(f"尝试下载: {download_url}")
-                    async with httpx.AsyncClient(timeout=60) as client:
-                        async with client.stream('GET', download_url) as response:
-                            response.raise_for_status()
-                            total_size = int(response.headers.get('content-length', 0))
-                            downloaded_size = 0
-                            
-                            with open(dest_path, 'wb') as f:
-                                async for chunk in response.aiter_bytes(chunk_size=8192):
-                                    f.write(chunk)
-                                    downloaded_size += len(chunk)
-                    
-                    self.log.info(f"更新文件下载完成: {dest_path}")
-                    return True
-                except Exception as e:
-                    self.log.warning(f"下载失败 (从 {download_url.split('/')[2] if len(download_url.split('/')) > 2 else download_url}): {e}")
-                    if os.path.exists(dest_path):
-                        os.remove(dest_path)
-                    continue
-            
-            self.log.error("所有下载源均失败")
-            return False
+            # 如果镜像方案失败，尝试直接下载
+            self.log.warning("镜像下载失败，尝试直接下载...")
+            return await self.download_update_direct(url, dest_path)
             
         except Exception as e:
             self.log.error(f"更新下载失败: {self.stack_error(e)}")
             if os.path.exists(dest_path):
                 os.remove(dest_path)
             return False
+    
+    async def _try_mirror_download(self, url: str, dest_path: str) -> bool:
+        """尝试使用镜像下载"""
+        # 检查是否在中国大陆
+        if os.environ.get('IS_CN') == 'yes':
+            self.log.info("检测到中国大陆网络，尝试使用镜像下载")
+            
+            # 尝试解析GitHub release URL以获取镜像地址
+            mirror_url = self.convert_github_to_mirror(url)
+            if mirror_url:
+                self.log.info(f"使用镜像地址: {mirror_url}")
+                
+                # 尝试使用镜像地址下载
+                try:
+                    return await self.download_update_direct(mirror_url, dest_path)
+                except Exception as e:
+                    self.log.warning(f"镜像下载失败: {e}")
+        
+        return False
 
     def convert_github_to_mirror(self, github_url: str) -> str:
         """将GitHub URL转换为国内镜像地址"""
         try:
             # 解析GitHub release URL
-            # 格式: https://github.com/WingChunWong/Cai-Installer-GUI/releases/download/v1.0.0/Cai-Installer-GUI.exe
             import re
             
             pattern = r'https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/(.+)'
@@ -837,11 +822,59 @@ class GuiBackend:
             if match:
                 owner, repo, tag, filename = match.groups()
                 
-                # 使用jsdelivr镜像
+                # 使用jsdelivr镜像 - 支持release文件
                 mirror_url = f'https://cdn.jsdelivr.net/gh/{owner}/{repo}@{tag}/{filename}'
+                self.log.info(f"GitHub URL转换为镜像: {github_url} -> {mirror_url}")
                 return mirror_url
             
             return ""
         except Exception as e:
             self.log.error(f"转换镜像地址失败: {e}")
             return ""
+        
+    async def download_update_direct(self, url: str, dest_path: str, progress_callback=None) -> bool:
+        """直接下载更新文件（不处理镜像），支持进度回调"""
+        try:
+            self.log.info(f"直接下载更新: {url}")
+            
+            async with httpx.AsyncClient(
+                timeout=60,
+                follow_redirects=True,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                }
+            ) as client:
+                # 先获取重定向后的最终URL和文件大小
+                head_response = await client.head(url, follow_redirects=True)
+                final_url = str(head_response.url)
+                total_size = int(head_response.headers.get('content-length', 0))
+                
+                self.log.info(f"最终下载地址: {final_url.split('?')[0]}")
+                if total_size:
+                    self.log.info(f"文件大小: {total_size / 1024 / 1024:.2f} MB")
+                
+                # 下载文件
+                async with client.stream('GET', final_url) as response:
+                    response.raise_for_status()
+                    
+                    downloaded_size = 0
+                    
+                    with open(dest_path, 'wb') as f:
+                        async for chunk in response.aiter_bytes(chunk_size=8192):
+                            f.write(chunk)
+                            downloaded_size += len(chunk)
+                            
+                            # 调用进度回调
+                            if progress_callback and total_size:
+                                progress_callback(downloaded_size, total_size)
+                    
+                    self.log.info(f"文件下载完成: {dest_path} ({downloaded_size} 字节)")
+                    return True
+                    
+        except Exception as e:
+            self.log.error(f"直接下载失败: {self.stack_error(e)}")
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            return False
