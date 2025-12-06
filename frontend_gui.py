@@ -3,6 +3,7 @@ import sys
 import os
 import logging
 import asyncio
+import time
 import webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
@@ -1049,8 +1050,8 @@ class CaiInstallGUI:
         dialog.transient(self.root)
         
         # 设置窗口大小
-        dialog.geometry("600x550")  # 稍微增加高度以显示网络信息
-        dialog.minsize(500, 450)
+        dialog.geometry("600x550")
+        dialog.minsize(800, 600)
         
         # 居中显示
         dialog.update_idletasks()
@@ -1087,11 +1088,17 @@ class CaiInstallGUI:
         latest_label.pack(anchor=tk.W, pady=(2, 0))
         
         # 网络信息
-        if update_info.get('mirror_url'):
+        if os.environ.get('IS_CN') == 'yes':
             network_label = ttk.Label(version_frame,
-                                     text="✓ 已启用国内镜像加速下载",
+                                     text="✓ 中国大陆网络，已启用镜像加速",
                                      font=('Consolas', 9),
                                      foreground='green')
+            network_label.pack(anchor=tk.W, pady=(5, 0))
+        else:
+            network_label = ttk.Label(version_frame,
+                                     text="✓ 非中国大陆网络，使用GitHub官方源",
+                                     font=('Consolas', 9),
+                                     foreground='blue')
             network_label.pack(anchor=tk.W, pady=(5, 0))
         
         # 更新内容
@@ -1139,7 +1146,8 @@ class CaiInstallGUI:
         progress_dialog = tk.Toplevel(self.root)
         progress_dialog.title("正在更新")
         progress_dialog.transient(self.root)
-        progress_dialog.geometry("400x150")
+        progress_dialog.geometry("400x180")
+        progress_dialog.resizable(False, False)
         
         # 居中显示
         progress_dialog.update_idletasks()
@@ -1148,36 +1156,54 @@ class CaiInstallGUI:
         parent_width = self.root.winfo_width()
         parent_height = self.root.winfo_height()
         x = parent_x + (parent_width - 400) // 2
-        y = parent_y + (parent_height - 150) // 2
-        progress_dialog.geometry(f"400x150+{x}+{y}")
+        y = parent_y + (parent_height - 180) // 2
+        progress_dialog.geometry(f"400x180+{x}+{y}")
         
         main_frame = ttk.Frame(progress_dialog, padding=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        ttk.Label(main_frame, text="正在下载更新文件，请稍候...").pack(pady=(0, 15))
+        # 网络状态显示
+        network_status = "使用镜像下载" if os.environ.get('IS_CN') == 'yes' else "使用GitHub官方源"
+        status_label = ttk.Label(main_frame, text=f"正在下载更新文件 ({network_status})...")
+        status_label.pack(anchor=tk.W, pady=(0, 10))
         
-        progress_bar = ttk.Progressbar(main_frame, mode="indeterminate", length=300)
-        progress_bar.pack()
-        progress_bar.start()
+        progress_var = tk.DoubleVar()
+        progress_bar = ttk.Progressbar(main_frame, variable=progress_var, maximum=100, mode="determinate")
+        progress_bar.pack(fill=tk.X, pady=(0, 10))
+        
+        progress_text = ttk.Label(main_frame, text="准备下载...")
+        progress_text.pack()
+        
+        # 进度回调函数
+        def update_progress(current, total):
+            if total > 0:
+                percent = (current / total) * 100
+                progress_var.set(percent)
+                progress_text.config(text=f"{current / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB ({percent:.1f}%)")
+                progress_dialog.update()
         
         # 在新线程中执行下载
         def download_and_install():
             try:
                 # 创建临时文件
                 temp_dir = tempfile.gettempdir()
-                exe_path = os.path.join(temp_dir, f"Cai-Installer-Gui-Update.exe")
+                exe_path = os.path.join(temp_dir, f"Cai-Installer-Gui-Update-{int(time.time())}.exe")
                 
                 # 下载更新 - 使用优化后的下载方法
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 
                 try:
+                    self.root.after(0, lambda: status_label.config(text="开始下载..."))
+                    
                     success = loop.run_until_complete(
-                        self.backend.download_update_with_mirror(download_url, exe_path)
+                        self.backend.download_update_with_mirror(download_url, exe_path, update_progress)
                     )
                     
                     if success:
                         self.log.info("更新文件下载成功")
+                        self.root.after(0, lambda: status_label.config(text="下载完成，准备安装..."))
+                        time.sleep(1)  # 给用户看到完成状态
                         self.root.after(0, progress_dialog.destroy)
                         self.root.after(0, lambda: self.launch_updater(exe_path))
                     else:
@@ -1194,7 +1220,7 @@ class CaiInstallGUI:
                     self.log.error(f"更新下载过程中出现异常: {str(e)}")
                     self.root.after(0, lambda: messagebox.showerror(
                         "更新异常", 
-                        f"更新过程中出现异常: {str(e)}\n"
+                        f"更新过程中出现异常:\n{str(e)}\n"
                         "请尝试手动下载更新。",
                         parent=self.root
                     ))
@@ -1205,7 +1231,7 @@ class CaiInstallGUI:
                 self.log.error(f"更新过程出错: {str(e)}")
                 self.root.after(0, lambda: messagebox.showerror(
                     "更新失败", 
-                    f"更新过程中发生错误: {str(e)}\n"
+                    f"更新过程中发生错误:\n{str(e)}\n"
                     "请手动下载更新：https://github.com/WingChunWong/Cai-Installer-GUI/releases",
                     parent=self.root
                 ))
