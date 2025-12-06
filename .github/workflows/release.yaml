@@ -5,6 +5,7 @@ on:
     types: [published]
     tags:
       - "v*.*.*"
+  workflow_dispatch:
 
 jobs:
   build-and-release:
