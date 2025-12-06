@@ -10,13 +10,12 @@ jobs:
   build-and-release:
     runs-on: windows-latest
     permissions:
-      contents: write # Allow uploading Release assets
-
+      contents: write # 允许上传发布内容
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Ensure full history and tags are fetched
+          fetch-depth: 0 # 确保获取完整的历史和标签
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -51,11 +50,11 @@ jobs:
         run: |
           ren frontend_gui.exe "Cai-Installer-Gui_${{ github.ref_name }}.exe"
         shell: pwsh
-        # github.ref_name will automatically get the current Release tag (e.g., v1.0.0)
+        # github.ref_name 将会是类似 v1.2.3 的标签名
       - name: Upload Artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             Cai-Installer-Gui_${{ github.ref_name }}.exe
           body_path: CHANGELOG.md
-          name: ${{ github.ref_name }} # Release name matches the tag
+          name: ${{ github.ref_name }} # 发布名称与标签匹配
