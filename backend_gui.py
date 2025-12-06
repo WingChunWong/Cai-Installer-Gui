@@ -3,19 +3,6 @@ import sys
 import traceback
 import asyncio
 import re
-try:
-    import aiofiles
-except ImportError:
-    raise ImportError("aiofiles 库未安装。请使用 'pip install aiofiles' 安装。")
-try:
-    import httpx
-except ImportError:
-    raise ImportError("httpx 库未安装。请使用 'pip install httpx' 安装。")
-import winreg
-try:
-    import vdf
-except ImportError:
-    raise ImportError("vdf 库未安装。请使用 'pip install vdf' 安装。")
 import json
 import zipfile
 import shutil
@@ -23,7 +10,30 @@ import struct
 import zlib
 import time
 from pathlib import Path
-from typing import Tuple, List, Dict, Literal
+from typing import Tuple, List, Dict, Literal, Optional, Any
+from datetime import datetime
+import logging
+
+# 延迟导入以提供更好的错误信息
+try:
+    import aiofiles
+except ImportError as e:
+    raise ImportError("aiofiles 库未安装。请使用 'pip install aiofiles' 安装。") from e
+
+try:
+    import httpx
+except ImportError as e:
+    raise ImportError("httpx 库未安装。请使用 'pip install httpx' 安装。") from e
+
+try:
+    import winreg
+except ImportError:
+    winreg = None  # 非Windows系统
+
+try:
+    import vdf
+except ImportError as e:
+    raise ImportError("vdf 库未安装。请使用 'pip install vdf' 安装。") from e
 
 DEFAULT_CONFIG = {
     "Github_Personal_Token": "",
@@ -34,123 +44,212 @@ DEFAULT_CONFIG = {
     "QA2": "温馨提示: 勾选'使用SteamTools进行清单更新'后，对于ST用户，程序将仅下载和更新LUA脚本，而不再下载清单文件(.manifest)。"
 }
 
-def get_app_dir():
-    if getattr(sys, '_MEIPASS', None):
+def get_app_dir() -> Path:
+    """获取应用程序目录，支持多种运行方式"""
+    if getattr(sys, '_MEIPASS', None):  # PyInstaller打包
         app_dir = Path(sys.executable).resolve().parent
-    elif '__compiled__' in globals():
+    elif '__compiled__' in globals():  # Nuitka打包
         app_dir = Path(sys.argv[0]).resolve().parent
-    elif getattr(sys, 'frozen', False):
+    elif getattr(sys, 'frozen', False):  # 其他打包方式
         app_dir = Path(sys.executable).resolve().parent
-    else:
+    else:  # 源码运行
         app_dir = Path(__file__).resolve().parent
     return app_dir
 
 app_dir = get_app_dir()
 
 class STConverter:
-    def __init__(self, logger):
+    """ST文件转换器"""
+    
+    def __init__(self, logger: logging.Logger):
         self.logger = logger
-
+    
     def convert_file(self, st_path: str) -> str:
+        """转换ST文件为LUA内容"""
         try:
             content, _ = self.parse_st_file(st_path)
             return content
         except Exception as e:
             self.logger.error(f'ST文件转换失败: {st_path} - {e}')
             raise
-
+    
     def parse_st_file(self, st_file_path: str) -> Tuple[str, dict]:
-        with open(st_file_path, 'rb') as stfile:
-            content = stfile.read()
-        if len(content) < 12:
-            raise ValueError("文件头长度不足")
-        header = content[:12]
-        xorkey, size, _ = struct.unpack('III', header)
-        xorkey ^= 0xFFFEA4C8
-        xorkey &= 0xFF
-        encrypted_data = content[12:12 + size]
-        if len(encrypted_data) < size:
-            raise ValueError(f"数据长度不足")
-        data = bytearray(encrypted_data)
-        for i in range(len(data)):
-            data[i] ^= xorkey
-        decompressed_data = zlib.decompress(data)
-        content_str = decompressed_data[512:].decode('utf-8')
-        metadata = {'original_xorkey': xorkey, 'size': size}
-        return content_str, metadata
+        """解析ST文件"""
+        try:
+            with open(st_file_path, 'rb') as stfile:
+                content = stfile.read()
+            
+            if len(content) < 12:
+                raise ValueError("文件头长度不足")
+            
+            header = content[:12]
+            xorkey, size, _ = struct.unpack('III', header)
+            xorkey ^= 0xFFFEA4C8
+            xorkey &= 0xFF
+            
+            encrypted_data = content[12:12 + size]
+            if len(encrypted_data) < size:
+                raise ValueError(f"数据长度不足，期望{size}字节，实际{len(encrypted_data)}字节")
+            
+            data = bytearray(encrypted_data)
+            for i in range(len(data)):
+                data[i] ^= xorkey
+            
+            decompressed_data = zlib.decompress(data)
+            content_str = decompressed_data[512:].decode('utf-8')
+            
+            metadata = {'original_xorkey': xorkey, 'size': size}
+            return content_str, metadata
+            
+        except (struct.error, zlib.error, UnicodeDecodeError) as e:
+            raise ValueError(f"ST文件解析失败: {e}") from e
 
 class GuiBackend:
-    def __init__(self, logger):
+    """GUI后端处理类"""
+    
+    def __init__(self, logger: logging.Logger):
         self.log = logger
         self.st_converter = STConverter(self.log)
-        self.app_config = {}
+        self.app_config = DEFAULT_CONFIG.copy()
         self.steam_path = Path()
-        self.unlocker_type = None
+        self.unlocker_type: Optional[str] = None
         self.temp_dir = app_dir / 'temp_cai_install'
         self.st_lock_manifest_version = False
-
+        self._client_cache: Optional[httpx.AsyncClient] = None
+        self.last_detected_region: Optional[str] = None
+    
     def stack_error(self, e: Exception) -> str:
+        """获取完整的异常堆栈信息"""
         return ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-
-    def load_config(self):
+    
+    def load_config(self) -> None:
+        """加载配置文件"""
         config_path = app_dir / 'config.json'
+        
         if not config_path.exists():
             self.gen_config_file()
+            return
+        
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 loaded_config = json.load(f)
-            self.app_config = DEFAULT_CONFIG.copy()
-            self.app_config.update(loaded_config)
+            
+            # 验证配置完整性
+            for key, value in DEFAULT_CONFIG.items():
+                if key not in loaded_config:
+                    loaded_config[key] = value
+            
+            self.app_config = loaded_config
+            
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            self.log.error(f"配置文件格式错误，将重置: {e}")
+            config_path.unlink(missing_ok=True)
+            self.gen_config_file()
         except Exception as e:
             self.log.error(f"配置文件加载失败，将重置: {self.stack_error(e)}")
-            if config_path.exists():
-                os.remove(config_path)
+            config_path.unlink(missing_ok=True)
             self.gen_config_file()
-            self.app_config = DEFAULT_CONFIG.copy()
     
-    def gen_config_file(self):
+    def gen_config_file(self) -> None:
+        """生成默认配置文件"""
         try:
             config_path = app_dir / "config.json"
-            self.log.info(f"尝试生成config.json到路径：{config_path}")
+            self.log.info(f"生成配置文件: {config_path}")
+            
             with open(config_path, mode="w", encoding="utf-8") as f:
                 json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
-            self.log.info('首次启动或配置重置，已生成config.json，请在"设置"中填写。')
+            
             self.app_config = DEFAULT_CONFIG.copy()
+            self.log.info('配置文件已生成，请在"设置"中填写。')
+            
         except Exception as e:
             self.log.error(f'配置文件生成失败: 路径={config_path}, 错误={self.stack_error(e)}')
-
-    def save_config(self):
+    
+    def save_config(self) -> bool:
+        """保存配置文件"""
         try:
             config_path = app_dir / "config.json"
-            self.log.info(f"尝试保存config.json到路径：{config_path}")
+            self.log.info(f"保存配置文件: {config_path}")
+            
+            # 创建备份
+            if config_path.exists():
+                backup_path = config_path.with_suffix('.json.bak')
+                shutil.copy2(config_path, backup_path)
+            
             with open(config_path, mode="w", encoding="utf-8") as f:
-                config_to_save = DEFAULT_CONFIG.copy()
-                config_to_save.update(self.app_config)
-                json.dump(config_to_save, f, indent=2, ensure_ascii=False)
+                json.dump(self.app_config, f, indent=2, ensure_ascii=False)
+            
+            self.log.info('配置文件保存成功。')
+            return True
+            
         except Exception as e:
             self.log.error(f'保存配置失败: 路径={config_path}, 错误={self.stack_error(e)}')
-
+            return False
+    
     def detect_steam_path(self) -> Path:
+        """检测Steam安装路径"""
         try:
             custom_path = self.app_config.get("Custom_Steam_Path", "").strip()
-            if custom_path and Path(custom_path).exists():
-                self.steam_path = Path(custom_path)
-                self.log.info(f"使用自定义Steam路径: {self.steam_path}")
+            
+            # 优先使用自定义路径
+            if custom_path:
+                custom_path_obj = Path(custom_path)
+                if custom_path_obj.exists():
+                    self.steam_path = custom_path_obj.resolve()
+                    self.log.info(f"使用自定义Steam路径: {self.steam_path}")
+                    return self.steam_path
+                else:
+                    self.log.warning(f"自定义Steam路径不存在: {custom_path}")
+            
+            # 自动检测（仅Windows）
+            if winreg is not None:
+                try:
+                    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Valve\Steam')
+                    steam_path_str = winreg.QueryValueEx(key, 'SteamPath')[0]
+                    self.steam_path = Path(steam_path_str).resolve()
+                    self.log.info(f"自动检测到Steam路径: {self.steam_path}")
+                    return self.steam_path
+                except (OSError, FileNotFoundError) as e:
+                    self.log.warning(f"注册表查询失败: {e}")
             else:
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Valve\Steam')
-                self.steam_path = Path(winreg.QueryValueEx(key, 'SteamPath')[0])
-                self.log.info(f"自动检测到Steam路径: {self.steam_path}")
-            return self.steam_path
-        except Exception:
+                self.log.warning("非Windows系统，无法自动检测Steam路径")
+            
+            # 尝试常见路径
+            common_paths = [
+                Path("C:/Program Files (x86)/Steam"),
+                Path("C:/Program Files/Steam"),
+                Path.home() / ".steam" / "steam",
+                Path.home() / ".local/share/Steam",
+            ]
+            
+            for path in common_paths:
+                if path.exists():
+                    self.steam_path = path.resolve()
+                    self.log.info(f"找到Steam路径: {self.steam_path}")
+                    return self.steam_path
+            
             self.log.error('Steam路径获取失败，请检查Steam是否安装或在设置中指定路径。')
             self.steam_path = Path()
             return self.steam_path
             
+        except Exception as e:
+            self.log.error(f'Steam路径检测失败: {self.stack_error(e)}')
+            self.steam_path = Path()
+            return self.steam_path
+    
     def detect_unlocker(self) -> Literal["steamtools", "greenluma", "conflict", "none"]:
+        """检测解锁工具类型"""
         if not self.steam_path.exists():
             return "none"
-        is_steamtools = (self.steam_path / 'config' / 'stplug-in').is_dir()
-        is_greenluma = any((self.steam_path / dll).exists() for dll in ['GreenLuma_2025_x86.dll', 'GreenLuma_2025_x64.dll'])
+        
+        # 检测SteamTools
+        steamtools_dir = self.steam_path / 'config' / 'stplug-in'
+        is_steamtools = steamtools_dir.is_dir()
+        
+        # 检测GreenLuma
+        greenluma_dlls = ['GreenLuma_2025_x86.dll', 'GreenLuma_2025_x64.dll']
+        is_greenluma = any((self.steam_path / dll).exists() for dll in greenluma_dlls)
+        
         if is_steamtools and is_greenluma:
             self.log.error("环境冲突：同时检测到SteamTools和GreenLuma！")
             return "conflict"
@@ -165,383 +264,685 @@ class GuiBackend:
         else:
             self.log.warning("未能自动检测到解锁工具。")
             return "none"
-
-    def is_steamtools(self):
+    
+    def is_steamtools(self) -> bool:
+        """是否为SteamTools"""
         return self.unlocker_type == "steamtools"
-
-    def get_github_headers(self):
-        token = self.app_config.get("Github_Personal_Token", "")
-        return {'Authorization': f'Bearer {token}'} if token else {}
-
-    async def check_github_api_rate_limit(self, client: httpx.AsyncClient, headers: dict):
+    
+    def get_github_headers(self) -> Dict[str, str]:
+        """获取GitHub请求头"""
+        token = self.app_config.get("Github_Personal_Token", "").strip()
+        if token:
+            return {'Authorization': f'token {token}'}
+        return {}
+    
+    async def get_client(self) -> httpx.AsyncClient:
+        """获取或创建HTTP客户端"""
+        if self._client_cache is None:
+            self._client_cache = httpx.AsyncClient(
+                timeout=30.0,
+                follow_redirects=True,
+                headers={
+                    'User-Agent': 'Cai-Installer-GUI/1.0'
+                }
+            )
+        return self._client_cache
+    
+    async def close_client(self) -> None:
+        """关闭HTTP客户端"""
+        if self._client_cache:
+            await self._client_cache.aclose()
+            self._client_cache = None
+    
+    async def check_github_api_rate_limit(self, client: httpx.AsyncClient, headers: dict) -> bool:
+        """检查GitHub API速率限制"""
         if headers:
             self.log.info("已配置Github Token。")
         else:
             self.log.warning("未配置Github Token，API请求次数有限，建议在设置中添加。")
+        
         try:
             r = await client.get('https://api.github.com/rate_limit', headers=headers)
             r.raise_for_status()
+            
             rate = r.json().get('resources', {}).get('core', {})
             remaining = rate.get('remaining', 0)
+            limit = rate.get('limit', 60)
+            
             if remaining == 0:
                 reset_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(rate.get('reset', 0)))
                 self.log.warning(f"GitHub API请求数已用尽，将在 {reset_time} 重置。")
                 return False
-            self.log.info(f'GitHub API 剩余请求次数: {remaining}')
+            
+            self.log.info(f'GitHub API 剩余请求次数: {remaining}/{limit}')
             return True
+            
         except Exception as e:
             self.log.error(f'检查GitHub API速率时出错: {e}')
             return False
-
-    async def checkcn(self, client: httpx.AsyncClient = None): # type: ignore
-        """检测是否在中国大陆"""
+    
+    async def checkcn(self, client: Optional[httpx.AsyncClient] = None) -> None:
+        """ 检测是否在中国大陆 """
+        temp_client = None
+        current_region = None
+        
         try:
-            # 如果client为None，创建新的client
-            temp_client = None
-            try:
-                if client is None:
-                    temp_client = httpx.AsyncClient(timeout=10)
-                    client_to_use = temp_client
-                else:
-                    client_to_use = client
+            if client is None:
+                temp_client = httpx.AsyncClient(timeout=10)
+                client_to_use = temp_client
+            else:
+                client_to_use = client
+            
+            check_apis = [
+                # API 1: 酷狗API
+                {
+                    "url": "https://mips.kugou.com/check/iscn?format=json",
+                    "parser": lambda data: ("cn" if data.get('flag', False) else 
+                                        f"not_cn_{data.get('country', 'Unknown')}")
+                },
                 
-                # 尝试检测地区
+                # API 2: IP.SB
+                {
+                    "url": "https://api.ip.sb/geoip",
+                    "parser": lambda data: ("cn" if data.get('country_code') == 'CN' else 
+                                        f"not_cn_{data.get('country', 'Unknown')}")
+                },
+                
+                # API 3: IPAPI.co
+                {
+                    "url": "https://ipapi.co/json/",
+                    "parser": lambda data: ("cn" if data.get('country') == 'CN' else 
+                                        f"not_cn_{data.get('country_name', 'Unknown')}")
+                }
+            ]
+            
+            # 尝试每个API，使用第一个成功的
+            for api_info in check_apis:
                 try:
-                    r = await client_to_use.get('https://mips.kugou.com/check/iscn?&format=json', timeout=5)
-                    if not bool(r.json().get('flag')):
-                        self.log.info(f"检测到非中国大陆地区 ({r.json().get('country')})")
-                        os.environ['IS_CN'] = 'no'
-                    else:
-                        os.environ['IS_CN'] = 'yes'
-                        self.log.info("检测到中国大陆地区")
-                except httpx.TimeoutException:
-                    self.log.warning('地区检测超时，默认使用国内镜像')
-                    os.environ['IS_CN'] = 'yes'
-                except Exception as e:
-                    self.log.warning(f'地区检测失败: {e}，默认使用国内镜像')
-                    os.environ['IS_CN'] = 'yes'
+                    self.log.debug(f"尝试地理位置API: {api_info['url'].split('/')[2]}")
                     
-            finally:
-                if temp_client:
-                    await temp_client.aclose()
-        except Exception:
-            # 如果检测失败，保守起见使用镜像
-            os.environ['IS_CN'] = 'yes'
-            self.log.warning('网络检测失败，默认使用国内镜像。')
-
-    async def fetch_branch_info(self, client: httpx.AsyncClient, url: str, headers: dict):
+                    r = await client_to_use.get(
+                        api_info['url'], 
+                        timeout=5,
+                        follow_redirects=True
+                    )
+                    
+                    if r.status_code == 200:
+                        data = r.json()
+                        result = api_info['parser'](data)
+                        
+                        if result:
+                            current_region = result
+                            break  # 成功获取，跳出循环
+                        else:
+                            self.log.debug(f"  → API返回无效数据 (来源: {api_info['url'].split('/')[2]})")
+                    else:
+                        self.log.debug(f"  → API请求失败: 状态码 {r.status_code} (来源: {api_info['url'].split('/')[2]})")
+                        
+                except (httpx.TimeoutException, httpx.RequestError) as e:
+                    self.log.debug(f"  → 连接超时或网络错误: {type(e).__name__} (来源: {api_info['url'].split('/')[2]})")
+                    continue
+                except json.JSONDecodeError as e:
+                    self.log.debug(f"  → JSON解析失败 (来源: {api_info['url'].split('/')[2]})")
+                    continue
+                except Exception as e:
+                    self.log.debug(f"  → 未知错误: {e} (来源: {api_info['url'].split('/')[2]})")
+                    continue
+            
+            # 处理检测结果
+            if current_region is None:
+                # 所有检测都失败，默认使用镜像
+                current_region = 'cn'
+                if self.last_detected_region != current_region:
+                    self.log.warning('所有地理位置API均失败，默认使用国内镜像')
+            else:
+                # 成功检测到地理位置
+                if current_region == 'cn':
+                    self.log.info("检测到中国大陆地区")
+                elif current_region.startswith('not_cn_'):
+                    country = current_region.replace('not_cn_', '')
+                    if country == 'Unknown':
+                        self.log.info("检测到非中国大陆地区\n您的IP归属地为")
+                    else:
+                        self.log.info(f"检测到非中国大陆地区\n您的IP归属地为{country}")
+            
+            # 只有在地区发生变化时才更新环境变量和日志
+            if current_region != self.last_detected_region:
+                self.last_detected_region = current_region
+                
+                # 设置环境变量
+                is_cn = 'yes' if current_region == 'cn' else 'no'
+                os.environ['IS_CN'] = is_cn
+                
+                # 记录最终决策
+                if is_cn == 'yes':
+                    self.log.info("使用镜像源")
+                else:
+                    self.log.info("使用GitHub源")
+            else:
+                # 如果地区没有变化，保持现有环境变量
+                if 'IS_CN' not in os.environ:
+                    os.environ['IS_CN'] = 'yes' if current_region == 'cn' else 'no'
+                
+        except Exception as e:
+            # 只有在之前没有记录过地区时才输出错误日志
+            if self.last_detected_region is None:
+                self.log.warning(f'地理位置检测异常: {e}，默认使用国内镜像')
+            else:
+                self.log.warning(f'地理位置检测异常: {e}，保持之前的设置')
+            
+            # 确保环境变量被设置
+            if 'IS_CN' not in os.environ:
+                os.environ['IS_CN'] = 'yes'
+            if self.last_detected_region is None:
+                self.last_detected_region = 'cn'
+        finally:
+            if temp_client:
+                await temp_client.aclose()
+    
+    async def fetch_branch_info(self, client: httpx.AsyncClient, url: str, headers: dict) -> Optional[Dict[str, Any]]:
+        """获取分支信息"""
         try:
             r = await client.get(url, headers=headers)
             r.raise_for_status()
             return r.json()
         except httpx.HTTPStatusError as e:
-            self.log.error(f'获取信息失败: {e.request.url} - 状态码 {e.response.status_code}')
-            if e.response.status_code == 404:
-                self.log.error("404 Not Found: 请检查AppID是否正确，以及该清单是否存在于所选仓库中。")
-            elif e.response.status_code == 403:
+            status_code = e.response.status_code
+            if status_code == 404:
+                self.log.error(f"404 Not Found: {url}")
+            elif status_code == 403:
                 self.log.error("403 Forbidden: GitHub API速率限制，请在设置中添加Token或稍后再试。")
+            elif status_code == 429:
+                self.log.error("429 Too Many Requests: API请求过多，请稍后再试。")
+            else:
+                self.log.error(f"HTTP错误 {status_code}: {url}")
             return None
         except Exception as e:
             self.log.error(f'获取信息失败: {self.stack_error(e)}')
             return None
-
-    async def get_from_url(self, client: httpx.AsyncClient, sha: str, path: str, repo: str):
+    
+    async def get_from_url(self, client: httpx.AsyncClient, sha: str, path: str, repo: str) -> bytes:
+        """从URL下载内容"""
         if os.environ.get('IS_CN') == 'yes':
             urls = [
                 f'https://cdn.jsdmirror.com/gh/{repo}@{sha}/{path}',
-                f'https://raw.gitmirror.com/{repo}/{sha}/{path}'
+                f'https://raw.gitmirror.com/{repo}/{sha}/{path}',
             ]
         else:
             urls = [f'https://raw.githubusercontent.com/{repo}/{sha}/{path}']
         
+        last_error = None
         for url in urls:
             try:
                 self.log.info(f"尝试下载: {path} from {url.split('/')[2]}")
                 r = await client.get(url, timeout=30)
+                
                 if r.status_code == 200:
                     return r.content
-                self.log.warning(f"下载失败 (状态码 {r.status_code}) from {url.split('/')[2]}，尝试下一个源...")
+                else:
+                    self.log.warning(f"下载失败 (状态码 {r.status_code}) from {url.split('/')[2]}")
+                    
             except Exception as e:
-                self.log.warning(f"下载时连接错误 from {url.split('/')[2]}: {e}，尝试下一个源...")
-        raise Exception(f'所有下载源均失败: {path}')
-
-    def extract_app_id(self, user_input: str):
-        for p in [r"store\.steampowered\.com/app/(\d+)", r"steamdb\.info/app/(\d+)"]:
-            if m := re.search(p, user_input):
-                return m.group(1)
-        return user_input if user_input.isdigit() else None
-
+                last_error = e
+                self.log.warning(f"下载时连接错误 from {url.split('/')[2]}: {e}")
+                continue
+        
+        raise Exception(f'所有下载源均失败: {path}, 最后错误: {last_error}')
+    
+    def extract_app_id(self, user_input: str) -> Optional[str]:
+        """从输入中提取AppID"""
+        patterns = [
+            r"store\.steampowered\.com/app/(\d+)",
+            r"steamdb\.info/app/(\d+)",
+            r"steamcommunity\.com/app/(\d+)"
+        ]
+        
+        for pattern in patterns:
+            if match := re.search(pattern, user_input):
+                return match.group(1)
+        
+        # 检查是否为纯数字
+        if user_input.isdigit():
+            return user_input
+        
+        return None
+    
     async def resolve_appids(self, inputs: List[str]) -> List[str]:
+        """解析多个AppID"""
         resolved_ids = []
+        
         for item in inputs:
+            item = item.strip()
+            if not item:
+                continue
+                
             if app_id := self.extract_app_id(item):
                 resolved_ids.append(app_id)
             else:
                 self.log.warning(f"输入项 '{item}' 不是有效的AppID或链接，已跳过。")
-        return list(dict.fromkeys(resolved_ids))
-
-    async def search_all_repos(self, client: httpx.AsyncClient, app_id: str, repos: List[str]):
+        
+        # 去重并保持原始顺序
+        seen = set()
+        unique_ids = []
+        for app_id in resolved_ids:
+            if app_id not in seen:
+                seen.add(app_id)
+                unique_ids.append(app_id)
+        
+        return unique_ids
+    
+    async def search_all_repos(self, client: httpx.AsyncClient, app_id: str, repos: List[str]) -> List[Dict[str, Any]]:
+        """在所有仓库中搜索"""
         results = []
+        
         for repo in repos:
             self.log.info(f"搜索仓库: {repo}")
             headers = self.get_github_headers()
+            
             branch_url = f'https://api.github.com/repos/{repo}/branches/{app_id}'
-            if r1 := await self.fetch_branch_info(client, branch_url, headers):
-                if 'commit' in r1 and (r2 := await self.fetch_branch_info(client, r1['commit']['commit']['tree']['url'], headers)):
-                    if 'tree' in r2:
-                        results.append({
-                            'repo': repo,
-                            'sha': r1['commit']['sha'],
-                            'tree': r2['tree'],
-                            'update_date': r1["commit"]["commit"]["author"]["date"]
-                        })
-                        self.log.info(f"在仓库 {repo} 中找到清单。")
+            branch_info = await self.fetch_branch_info(client, branch_url, headers)
+            
+            if not branch_info:
+                continue
+            
+            if 'commit' not in branch_info:
+                continue
+            
+            tree_url = branch_info['commit']['commit']['tree']['url']
+            tree_info = await self.fetch_branch_info(client, tree_url, headers)
+            
+            if not tree_info or 'tree' not in tree_info:
+                continue
+            
+            results.append({
+                'repo': repo,
+                'sha': branch_info['commit']['sha'],
+                'tree': tree_info['tree'],
+                'update_date': branch_info['commit']['commit']['author']['date']
+            })
+            self.log.info(f"在仓库 {repo} 中找到清单。")
+        
         return results
-
-    async def process_github_repo(self, client: httpx.AsyncClient, app_id: str, repo: str, existing_data: dict = None): # type: ignore
+    
+    async def process_github_repo(self, client: httpx.AsyncClient, app_id: str, repo: str, 
+                                existing_data: Optional[Dict[str, Any]] = None) -> bool:
+        """处理GitHub仓库"""
         try:
             headers = self.get_github_headers()
             
             if existing_data:
-                sha, tree, date = existing_data['sha'], existing_data['tree'], existing_data['update_date']
+                sha = existing_data['sha']
+                tree = existing_data['tree']
+                date = existing_data['update_date']
             else:
                 branch_url = f'https://api.github.com/repos/{repo}/branches/{app_id}'
-                if not (r_json := await self.fetch_branch_info(client, branch_url, headers)):
+                branch_info = await self.fetch_branch_info(client, branch_url, headers)
+                
+                if not branch_info:
                     return False
                 
-                sha, date = r_json['commit']['sha'], r_json["commit"]["commit"]["author"]["date"]
+                sha = branch_info['commit']['sha']
+                date = branch_info['commit']['commit']['author']['date']
                 
-                if not (r2_json := await self.fetch_branch_info(client, r_json['commit']['commit']['tree']['url'], headers)):
+                tree_url = branch_info['commit']['commit']['tree']['url']
+                tree_info = await self.fetch_branch_info(client, tree_url, headers)
+                
+                if not tree_info:
                     return False
-                tree = r2_json['tree']
+                
+                tree = tree_info['tree']
             
-            all_manifests_in_repo = [item['path'] for item in tree if item['path'].endswith('.manifest')]
-            tasks = [self.get_manifest_from_github(client, sha, item['path'], repo, app_id, all_manifests_in_repo) for item in tree]
+            # 获取所有清单文件
+            all_manifests = [item['path'] for item in tree if item['path'].endswith('.manifest')]
+            
+            if not all_manifests:
+                self.log.error(f'仓库中没有找到清单文件: {app_id}')
+                return False
+            
+            # 并行下载和处理文件
+            tasks = []
+            for item in tree:
+                tasks.append(
+                    self.get_manifest_from_github(client, sha, item['path'], repo, app_id, all_manifests)
+                )
+            
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
             collected_depots = []
             for res in results:
                 if isinstance(res, Exception):
                     self.log.error(f"下载/处理文件时出错: {res}")
-                    return False
+                    continue
                 if res:
                     collected_depots.extend(res) # type: ignore
             
-            if not any(isinstance(res, list) and res is not None for res in results) and not collected_depots:
-                self.log.error(f'仓库中没有找到有效的清单文件或密钥文件: {app_id}')
+            if not collected_depots:
+                self.log.error(f'未能收集到任何密钥信息: {app_id}')
                 return False
             
+            # 根据解锁工具类型处理
             if self.is_steamtools():
                 self.log.info('检测到SteamTools，已自动生成并放置解锁文件。')
-            elif collected_depots:
-                await self.greenluma_add([app_id] + [depot_id for depot_id, _ in collected_depots])
-                await self.depotkey_merge({'depots': {depot_id: {'DecryptionKey': key} for depot_id, key in collected_depots}})
+            else:
+                depot_ids = [app_id] + [depot_id for depot_id, _ in collected_depots]
+                await self.greenluma_add(depot_ids)
+                
+                depot_config = {'depots': {depot_id: {'DecryptionKey': key} 
+                                         for depot_id, key in collected_depots}}
+                await self.depotkey_merge(depot_config)
             
             self.log.info(f'清单最后更新时间: {date}')
             return True
             
         except Exception as e:
-            self.log.error(f"处理GitHub仓库时出错: {str(e)}")
+            self.log.error(f"处理GitHub仓库时出错: {self.stack_error(e)}")
             return False
-
-    async def get_manifest_from_github(self, client: httpx.AsyncClient, sha: str, path: str, repo: str, app_id: str, all_manifests: List[str]):
+    
+    async def get_manifest_from_github(self, client: httpx.AsyncClient, sha: str, path: str, 
+                                     repo: str, app_id: str, all_manifests: List[str]) -> List[Tuple[str, str]]:
+        """从GitHub获取清单文件"""
         is_st_auto_update_mode = self.is_steamtools() and self.app_config.get("steamtools_only_lua", False)
         
+        # 跳过清单文件下载（如果启用了ST自动更新模式）
         if path.endswith('.manifest') and is_st_auto_update_mode:
             self.log.info(f"ST自动更新模式: 已跳过清单文件下载: {path}")
             return []
-
-        content = await self.get_from_url(client, sha, path, repo)
+        
+        try:
+            content = await self.get_from_url(client, sha, path, repo)
+        except Exception as e:
+            self.log.error(f"下载文件失败: {path} - {e}")
+            return []
+        
         depots = []
         stplug = self.steam_path / 'config' / 'stplug-in'
         
+        # 处理清单文件
         if path.endswith('.manifest') and not is_st_auto_update_mode:
             depot_cache = self.steam_path / 'depotcache'
             cfg_depot_cache = self.steam_path / 'config' / 'depotcache'
+            
             for p in [depot_cache, cfg_depot_cache, stplug]:
                 p.mkdir(parents=True, exist_ok=True)
+            
             for p in [depot_cache, cfg_depot_cache]:
-                (p / Path(path).name).write_bytes(content)
+                manifest_path = p / Path(path).name
+                manifest_path.write_bytes(content)
+            
             self.log.info(f'清单已保存: {path}')
+        
+        # 处理密钥文件
         elif "key.vdf" in path.lower():
-            depots_cfg = vdf.loads(content.decode('utf-8'))
-            depots = [(depot_id, info['DecryptionKey']) for depot_id, info in depots_cfg.get('depots', {}).items()]
-            if self.is_steamtools() and app_id:
-                lua_path = stplug / f"{app_id}.lua"
-                self.log.info(f'为SteamTools创建Lua脚本: {lua_path}')
+            try:
+                depots_cfg = vdf.loads(content.decode('utf-8'))
+                depots = [(depot_id, info['DecryptionKey']) 
+                         for depot_id, info in depots_cfg.get('depots', {}).items()]
                 
-                is_floating_version = is_st_auto_update_mode and not self.st_lock_manifest_version
-
-                with open(lua_path, "w", encoding="utf-8") as f:
-                    f.write(f'addappid({app_id}, 1, "None")\n')
-                    for depot_id, key in depots:
-                        f.write(f'addappid({depot_id}, 1, "{key}")\n')
+                # 为SteamTools创建LUA脚本
+                if self.is_steamtools() and app_id:
+                    lua_path = stplug / f"{app_id}.lua"
+                    is_floating_version = is_st_auto_update_mode and not self.st_lock_manifest_version
                     
-                    for mf_path in all_manifests:
-                        if m := re.search(r'(\d+)_(\w+)\.manifest', mf_path):
-                            line = f'setManifestid({m.group(1)}, "{m.group(2)}")\n'
-                            if is_floating_version:
-                                f.write('--' + line)
-                            else:
-                                f.write(line)
-                self.log.info('Lua脚本创建成功。')
+                    with open(lua_path, "w", encoding="utf-8") as f:
+                        f.write(f'addappid({app_id}, 1, "None")\n')
+                        for depot_id, key in depots:
+                            f.write(f'addappid({depot_id}, 1, "{key}")\n')
+                        
+                        for mf_path in all_manifests:
+                            if m := re.search(r'(\d+)_(\w+)\.manifest', mf_path):
+                                line = f'setManifestid({m.group(1)}, "{m.group(2)}")\n'
+                                if is_floating_version:
+                                    f.write('--' + line)
+                                else:
+                                    f.write(line)
+                    
+                    self.log.info(f'Lua脚本创建成功: {lua_path}')
+                    
+            except (UnicodeDecodeError, KeyError) as e:
+                self.log.error(f"解析密钥文件失败: {path} - {e}")
+        
         return depots
-
-    async def depotkey_merge(self, depots_config: dict):
+    
+    async def depotkey_merge(self, depots_config: Dict[str, Any]) -> bool:
+        """合并密钥到config.vdf"""
         config_path = self.steam_path / 'config' / 'config.vdf'
+        
         if not config_path.exists():
             self.log.error('Steam默认配置(config.vdf)不存在')
             return False
+        
         try:
+            # 读取现有配置
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = vdf.loads(f.read())
-            steam = (config.get('InstallConfigStore',{}).get('Software',{}).get('Valve') or 
-                     config.get('InstallConfigStore',{}).get('Software',{}).get('valve'))
-            if not steam:
+            
+            # 查找Steam配置节
+            steam_section = (config.get('InstallConfigStore', {})
+                                       .get('Software', {})
+                                       .get('Valve') or 
+                            config.get('InstallConfigStore', {})
+                                   .get('Software', {})
+                                   .get('valve'))
+            
+            if not steam_section:
                 self.log.error('找不到Steam配置节')
                 return False
-            steam.setdefault('depots', {}).update(depots_config.get('depots', {}))
+            
+            # 合并密钥
+            if 'depots' not in steam_section:
+                steam_section['depots'] = {}
+            
+            steam_section['depots'].update(depots_config.get('depots', {}))
+            
+            # 写入配置（创建备份）
+            backup_path = config_path.with_suffix('.vdf.bak')
+            if not backup_path.exists():
+                shutil.copy2(config_path, backup_path)
+            
             with open(config_path, 'w', encoding='utf-8') as f:
                 f.write(vdf.dumps(config, pretty=True))
+            
             self.log.info('密钥成功合并到 config.vdf。')
             return True
+            
         except Exception as e:
             self.log.error(f'合并密钥失败: {self.stack_error(e)}')
             return False
     
-    async def greenluma_add(self, depot_id_list: List[str]):
+    async def greenluma_add(self, depot_id_list: List[str]) -> bool:
+        """为GreenLuma添加解锁文件"""
         try:
             app_list_path = self.steam_path / 'AppList'
             app_list_path.mkdir(parents=True, exist_ok=True)
+            
             for appid in depot_id_list:
-                (app_list_path / f'{appid}.txt').write_text(str(appid), encoding='utf-8')
-            self.log.info(f"已为GreenLuma添加AppID: {', '.join(depot_id_list)}")
+                if not appid.isdigit():
+                    self.log.warning(f"跳过非数字AppID: {appid}")
+                    continue
+                    
+                file_path = app_list_path / f'{appid}.txt'
+                file_path.write_text(str(appid), encoding='utf-8')
+            
+            self.log.info(f"已为GreenLuma添加 {len(depot_id_list)} 个AppID")
             return True
+            
         except Exception as e:
             self.log.error(f'为GreenLuma添加解锁文件时出错: {e}')
             return False
-
-    async def _process_zip_based_manifest(self, client: httpx.AsyncClient, app_id: str, download_url: str, source_name: str):
+    
+    async def _process_zip_based_manifest(self, client: httpx.AsyncClient, app_id: str, 
+                                        download_url: str, source_name: str) -> bool:
+        """处理基于ZIP的清单文件"""
         try:
+            # 清理并创建临时目录
+            if self.temp_dir.exists():
+                shutil.rmtree(self.temp_dir, ignore_errors=True)
             self.temp_dir.mkdir(exist_ok=True)
+            
             self.log.info(f'[{source_name}] 正在下载清单文件: {download_url}')
+            
+            # 下载ZIP文件
             async with client.stream("GET", download_url, timeout=60) as r:
                 if r.status_code != 200:
                     self.log.error(f'[{source_name}] 下载失败: 状态码 {r.status_code}')
                     return False
+                
                 zip_path = self.temp_dir / f'{app_id}.zip'
                 async with aiofiles.open(zip_path, 'wb') as f:
                     async for chunk in r.aiter_bytes():
                         await f.write(chunk)
             
             self.log.info(f'[{source_name}] 正在解压文件...')
+            
+            # 解压文件
             extract_path = self.temp_dir / app_id
             with zipfile.ZipFile(zip_path, 'r') as zf:
                 zf.extractall(extract_path)
             
+            # 查找各种文件
             manifest_files = list(extract_path.glob('*.manifest'))
             lua_files = list(extract_path.glob('*.lua'))
             st_files = list(extract_path.glob('*.st'))
-
+            
+            # 转换ST文件为LUA
             for st_file in st_files:
                 try:
                     lua_path = st_file.with_suffix('.lua')
                     lua_content = self.st_converter.convert_file(str(st_file))
+                    
                     async with aiofiles.open(lua_path, 'w', encoding='utf-8') as f:
                         await f.write(lua_content)
+                    
                     lua_files.append(lua_path)
                     self.log.info(f'已转换ST文件: {st_file.name}')
+                    
                 except Exception as e:
-                    self.log.error(f'转换ST文件失败: {e} - {self.stack_error(e)}')
-
+                    self.log.error(f'转换ST文件失败: {st_file.name} - {e}')
+            
+            # 处理模式
             is_st_auto_update_mode = self.is_steamtools() and self.app_config.get("steamtools_only_lua", False)
             is_floating_version = is_st_auto_update_mode and not self.st_lock_manifest_version
-
+            
+            # SteamTools模式
             if self.is_steamtools():
                 st_plug = self.steam_path / 'config' / 'stplug-in'
                 st_plug.mkdir(parents=True, exist_ok=True)
                 
+                # 标准模式：复制清单文件
                 if not is_st_auto_update_mode:
-                    self.log.info(f'[{source_name}] 按SteamTools标准模式安装清单文件。')
                     st_depot_path = self.steam_path / 'config' / 'depotcache'
                     gl_depot_path = self.steam_path / 'depotcache'
-
+                    
                     st_depot_path.mkdir(parents=True, exist_ok=True)
                     gl_depot_path.mkdir(parents=True, exist_ok=True)
                     
                     if manifest_files:
-                        for f in manifest_files:
-                            shutil.copy2(f, st_depot_path)
-                            shutil.copy2(f, gl_depot_path)
-                        self.log.info(f"[{source_name}] 已复制 {len(manifest_files)} 个清单到 config/depotcache 和 depotcache 两个目录。")
+                        for manifest_file in manifest_files:
+                            shutil.copy2(manifest_file, st_depot_path)
+                            shutil.copy2(manifest_file, gl_depot_path)
+                        
+                        self.log.info(f"[{source_name}] 已复制 {len(manifest_files)} 个清单文件")
                     else:
-                        self.log.info(f"[{source_name}] 未找到 .manifest 文件。")
+                        self.log.warning(f"[{source_name}] 未找到 .manifest 文件")
+                
+                # 自动更新模式
                 else:
-                    self.log.info(f"[{source_name}] ST自动更新模式: 已跳过.manifest 文件。")
-
+                    self.log.info(f"[{source_name}] ST自动更新模式: 已跳过.manifest 文件")
+                
+                # 创建或合并LUA脚本
                 lua_filename = f"{app_id}.lua"
                 lua_filepath = st_plug / lua_filename
+                
                 all_depots = {}
-                for lua_f in lua_files:
-                    with open(lua_f, 'r', encoding='utf-8') as f_in:
-                        for m in re.finditer(r'addappid\((\d+),\s*1,\s*"([^"]+)"\)', f_in.read()):
+                for lua_file in lua_files:
+                    try:
+                        with open(lua_file, 'r', encoding='utf-8') as f_in:
+                            content = f_in.read()
+                            
+                        # 提取密钥信息
+                        for m in re.finditer(r'addappid\((\d+),\s*1,\s*"([^"]+)"\)', content):
                             all_depots[m.group(1)] = m.group(2)
-
+                    except Exception as e:
+                        self.log.error(f"读取LUA文件失败: {lua_file} - {e}")
+                
+                # 写入LUA脚本
                 async with aiofiles.open(lua_filepath, 'w', encoding='utf-8') as f:
                     await f.write(f'addappid({app_id}, 1, "None")\n')
+                    
                     for depot_id, key in all_depots.items():
                         await f.write(f'addappid({depot_id}, 1, "{key}")\n')
                     
-                    for manifest_f in manifest_files:
-                        m = re.search(r'(\d+)_(\w+)\.manifest', manifest_f.name)
-                        if m:
+                    # 添加清单版本信息
+                    for manifest_file in manifest_files:
+                        if m := re.search(r'(\d+)_(\w+)\.manifest', manifest_file.name):
                             line = f'setManifestid({m.group(1)}, "{m.group(2)}")\n'
                             if is_floating_version:
                                 await f.write('--' + line)
                             else:
                                 await f.write(line)
+                
                 self.log.info(f'[{source_name}] 已为SteamTools生成解锁脚本: {lua_filename}')
                 return True
+            
+            # GreenLuma/标准模式
             else:
                 self.log.info(f'[{source_name}] 按GreenLuma/标准模式安装。')
                 gl_depot = self.steam_path / 'depotcache'
                 gl_depot.mkdir(parents=True, exist_ok=True)
+                
                 if not manifest_files:
-                    self.log.warning(f"[{source_name}] 在GreenLuma/标准模式下未找到可安装的 .manifest 文件。")
+                    self.log.error(f"[{source_name}] 未找到 .manifest 文件")
                     return False
                 
-                for f in manifest_files:
-                    shutil.copy2(f, gl_depot)
-                self.log.info(f"已复制 {len(manifest_files)} 个清单到Steam depotcache目录。")
-
-                all_depots = {}
-                for lua_f in lua_files:
-                    with open(lua_f, 'r', encoding='utf-8') as f_in:
-                         for m in re.finditer(r'addappid\((\d+),\s*"([^"]+)"\)', f_in.read()):
-                            all_depots[m.group(1)] = {'DecryptionKey': m.group(2)}
+                # 复制清单文件
+                for manifest_file in manifest_files:
+                    shutil.copy2(manifest_file, gl_depot)
                 
+                self.log.info(f"已复制 {len(manifest_files)} 个清单文件")
+                
+                # 提取密钥并合并
+                all_depots = {}
+                for lua_file in lua_files:
+                    try:
+                        with open(lua_file, 'r', encoding='utf-8') as f_in:
+                            content = f_in.read()
+                            
+                        for m in re.finditer(r'addappid\((\d+),\s*"([^"]+)"\)', content):
+                            all_depots[m.group(1)] = {'DecryptionKey': m.group(2)}
+                    except Exception as e:
+                        self.log.error(f"读取LUA文件失败: {lua_file} - {e}")
+                
+                # 合并密钥和添加AppID
                 if all_depots:
                     await self.depotkey_merge({'depots': all_depots})
                     await self.greenluma_add([app_id] + list(all_depots.keys()))
                 else:
                     await self.greenluma_add([app_id])
+                
                 return True
+                
         except Exception as e:
             self.log.error(f'[{source_name}] 处理清单时出错: {self.stack_error(e)}')
             return False
         finally:
+            # 清理临时文件
             if self.temp_dir.exists():
                 shutil.rmtree(self.temp_dir, ignore_errors=True)
-
-    async def process_from_specific_repo(self, client: httpx.AsyncClient, inputs: List[str], repo_val: str):
+    
+    async def process_from_specific_repo(self, client: httpx.AsyncClient, inputs: List[str], 
+                                       repo_val: str) -> bool:
+        """处理特定仓库"""
         app_ids = await self.resolve_appids(inputs)
+        
         if not app_ids:
             self.log.error("未能解析出任何有效的AppID。")
             return False
         
         self.log.info(f"成功解析的 App IDs: {', '.join(app_ids)}")
         
-        is_github = repo_val not in ["swa", "cysaw", "furcate", "cngs", "steamdatabase"]
+        # 检查是否为GitHub仓库
+        is_github = repo_val not in ["swa", "cysaw", "furcate", "cngs", "steamdatabase", "walftech"]
+        
         if is_github:
             await self.checkcn(client)
             if not await self.check_github_api_rate_limit(client, self.get_github_headers()):
@@ -552,18 +953,34 @@ class GuiBackend:
             self.log.info(f"--- 正在处理 App ID: {app_id} ---")
             success = False
             
+            # 根据仓库类型处理
             if repo_val == "swa":
-                success = await self._process_zip_based_manifest(client, app_id, f'https://api.printedwaste.com/gfk/download/{app_id}', "SWA V2")
+                success = await self._process_zip_based_manifest(
+                    client, app_id, f'https://api.printedwaste.com/gfk/download/{app_id}', "SWA V2"
+                )
             elif repo_val == "cysaw":
-                success = await self._process_zip_based_manifest(client, app_id, f'https://cysaw.top/uploads/{app_id}.zip', "Cysaw")
+                success = await self._process_zip_based_manifest(
+                    client, app_id, f'https://cysaw.top/uploads/{app_id}.zip', "Cysaw"
+                )
             elif repo_val == "furcate":
-                success = await self._process_zip_based_manifest(client, app_id, f'https://furcate.eu/files/{app_id}.zip', "Furcate")
+                success = await self._process_zip_based_manifest(
+                    client, app_id, f'https://furcate.eu/files/{app_id}.zip', "Furcate"
+                )
             elif repo_val == "cngs":
-                success = await self._process_zip_based_manifest(client, app_id, f'https://assiw.cngames.site/qindan/{app_id}.zip', "CNGS")
+                success = await self._process_zip_based_manifest(
+                    client, app_id, f'https://assiw.cngames.site/qindan/{app_id}.zip', "CNGS"
+                )
             elif repo_val == "steamdatabase":
-                success = await self._process_zip_based_manifest(client, app_id, f'https://steamdatabase.s3.eu-north-1.amazonaws.com/{app_id}.zip', "SteamDatabase")
+                success = await self._process_zip_based_manifest(
+                    client, app_id, f'https://steamdatabase.s3.eu-north-1.amazonaws.com/{app_id}.zip', 
+                    "SteamDatabase"
+                )
             elif repo_val == "walftech":
-                success = await self._process_zip_based_manifest(client, app_id, f'https://walftech.com/proxy.php?url=https%3A%2F%2Fsteamgames554.s3.us-east-1.amazonaws.com%2F{app_id}.zip', "Walftech")
+                success = await self._process_zip_based_manifest(
+                    client, app_id, 
+                    f'https://walftech.com/proxy.php?url=https%3A%2F%2Fsteamgames554.s3.us-east-1.amazonaws.com%2F{app_id}.zip', 
+                    "Walftech"
+                )
             else:
                 success = await self.process_github_repo(client, app_id, repo_val)
             
@@ -574,35 +991,46 @@ class GuiBackend:
                 self.log.error(f"App ID: {app_id} 处理失败。")
         
         return success_count > 0
-
-    async def cleanup_temp_files(self):
+    
+    async def cleanup_temp_files(self) -> None:
+        """清理临时文件"""
         if self.temp_dir.exists():
-            shutil.rmtree(self.temp_dir, ignore_errors=True)
-            self.log.info('临时文件清理完成。')
-
-    async def process_by_searching_all(self, client: httpx.AsyncClient, inputs: List[str], github_repos: List[str]):
+            try:
+                shutil.rmtree(self.temp_dir, ignore_errors=True)
+                self.log.info('临时文件清理完成。')
+            except Exception as e:
+                self.log.warning(f'清理临时文件时出错: {e}')
+    
+    async def process_by_searching_all(self, client: httpx.AsyncClient, inputs: List[str], 
+                                     github_repos: List[str]) -> bool:
+        """搜索所有仓库处理"""
         app_ids = await self.resolve_appids(inputs)
+        
         if not app_ids:
             self.log.error("未能解析出任何有效的AppID。")
             return False
         
         await self.checkcn(client)
+        
         if not await self.check_github_api_rate_limit(client, self.get_github_headers()):
             return False
         
         success_count = 0
         for app_id in app_ids:
             self.log.info(f"--- 正在为 App ID: {app_id} 搜索所有GitHub库 ---")
+            
             repo_results = await self.search_all_repos(client, app_id, github_repos)
             
             if not repo_results:
                 self.log.error(f"在所有GitHub库中均未找到 {app_id} 的清单。")
                 continue
             
+            # 按更新时间排序，选择最新的
             repo_results.sort(key=lambda x: x['update_date'], reverse=True)
             selected = repo_results[0]
             
-            self.log.info(f"找到 {len(repo_results)} 个结果，将使用最新的清单: {selected['repo']} (更新于 {selected['update_date']})")
+            self.log.info(f"找到 {len(repo_results)} 个结果，将使用最新的清单: "
+                         f"{selected['repo']} (更新于 {selected['update_date']})")
             
             if await self.process_github_repo(client, app_id, selected['repo'], selected):
                 self.log.info(f"App ID: {app_id} 处理成功。")
@@ -611,91 +1039,90 @@ class GuiBackend:
                 self.log.error(f"App ID: {app_id} 处理失败。")
         
         return success_count > 0
-
-    async def search_games_by_name_fallback(self, client: httpx.AsyncClient, game_name: str) -> List[Dict]:
-        try:
-            self.log.info(f"尝试备用搜索方案: '{game_name}'")
-            url = f'https://steamspy.com/api.php'
-            params = {
-                'request': 'search',
-                'search': game_name
-            }
-            
-            r = await client.get(url, params=params, timeout=30)
-            if r.status_code == 200:
-                data = r.json()
-                games = []
-                for appid, game_info in list(data.items())[:20]:
-                    games.append({
-                        'appid': int(appid),
-                        'name': game_info.get('name', ''),
-                        'schinese_name': game_info.get('name', ''),
-                        'type': 'Game'
-                    })
-                return games
-            
-            return []
-            
-        except Exception as e:
-            self.log.error(f"备用搜索也失败: {e}")
-            return []
-
-    async def search_games_by_name(self, client: httpx.AsyncClient, game_name: str) -> List[Dict]:
+    
+    async def search_games_by_name(self, client: httpx.AsyncClient, game_name: str) -> List[Dict[str, Any]]:
+        """通过名称搜索游戏"""
         try:
             self.log.info(f"搜索游戏: '{game_name}'")
+            
+            # 尝试多个搜索源
+            games = await self._search_steam_store(client, game_name)
+            
+            if not games:
+                games = await self._search_steamspy(client, game_name)
+            
+            self.log.info(f"找到 {len(games)} 个匹配的游戏。")
+            return games[:20]  # 限制返回数量
+            
+        except Exception as e:
+            self.log.error(f"搜索游戏失败: {e}")
+            return []
+    
+    async def _search_steam_store(self, client: httpx.AsyncClient, game_name: str) -> List[Dict[str, Any]]:
+        """搜索Steam商店"""
+        try:
             url = 'https://store.steampowered.com/api/storesearch/'
-            params = {
-                'term': game_name,
-                'l': 'schinese',
-                'cc': 'CN'
-            }
+            params = {'term': game_name, 'l': 'schinese', 'cc': 'CN'}
             
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept': 'application/json',
                 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'Referer': 'https://store.steampowered.com/',
-                'Origin': 'https://store.steampowered.com',
             }
             
             r = await client.get(url, params=params, headers=headers, timeout=15)
             
             if r.status_code != 200:
-                self.log.error(f"API请求失败，状态码: {r.status_code}")
-                return await self.search_games_by_name_fallback(client, game_name)
+                return []
             
             data = r.json()
             games = []
+            
             for item in data.get('items', []):
-                game = {
+                games.append({
                     'appid': item['id'],
                     'name': item['name'],
                     'schinese_name': item['name'],
                     'type': 'Game'
-                }
-                games.append(game)
+                })
             
-            self.log.info(f"找到 {len(games)} 个匹配的游戏。")
-            return games[:20]
+            return games
             
-        except httpx.TimeoutException:
-            self.log.error("搜索超时，请检查网络连接")
+        except Exception:
             return []
-        except httpx.RequestError as e:
-            self.log.error(f"网络请求失败: {e}")
-            return []
-        except Exception as e:
-            self.log.error(f"搜索游戏时出错: {e}")
-            try:
-                return await self.search_games_by_name_fallback(client, game_name)
-            except Exception as e2:
-                self.log.error(f"备用搜索也失败: {e2}")
+    
+    async def _search_steamspy(self, client: httpx.AsyncClient, game_name: str) -> List[Dict[str, Any]]:
+        """备用搜索方案：SteamSpy"""
+        try:
+            url = 'https://steamspy.com/api.php'
+            params = {'request': 'search', 'search': game_name}
+            
+            r = await client.get(url, params=params, timeout=30)
+            
+            if r.status_code != 200:
                 return []
             
-    async def check_for_updates(self, current_version: str) -> dict:
-        """检查是否有新版本更新"""
+            data = r.json()
+            games = []
+            
+            for appid, game_info in list(data.items())[:20]:
+                games.append({
+                    'appid': int(appid),
+                    'name': game_info.get('name', ''),
+                    'schinese_name': game_info.get('name', ''),
+                    'type': 'Game'
+                })
+            
+            return games
+            
+        except Exception:
+            return []
+    
+    async def check_for_updates(self, current_version: str) -> Dict[str, Any]:
+        """检查更新"""
         try:
             headers = self.get_github_headers()
+            
             async with httpx.AsyncClient() as client:
                 # 检查网络环境
                 await self.checkcn(client)
@@ -706,19 +1133,19 @@ class GuiBackend:
                 response.raise_for_status()
                 
                 release_info = response.json()
-                latest_version = release_info.get('tag_name', '')
+                latest_version = release_info.get('tag_name', '').lstrip('v')
                 
-                # 比较版本号
+                # 比较版本
                 if self.is_newer_version(latest_version, current_version):
-                    # 获取下载URL
-                    download_url = next(
-                        (asset['browser_download_url'] for asset in release_info.get('assets', []) 
-                        if asset['name'].endswith('.exe')), 
-                        ''
-                    )
+                    # 查找exe文件
+                    download_url = ''
+                    for asset in release_info.get('assets', []):
+                        if asset['name'].endswith('.exe'):
+                            download_url = asset['browser_download_url']
+                            break
                     
-                    # 如果在中国大陆，生成镜像URL
-                    mirror_url = ""
+                    # 生成镜像地址
+                    mirror_url = ''
                     if os.environ.get('IS_CN') == 'yes' and download_url:
                         mirror_url = self.convert_github_to_mirror(download_url)
                     
@@ -728,143 +1155,55 @@ class GuiBackend:
                         'current_version': current_version,
                         'release_url': release_info.get('html_url', ''),
                         'download_url': download_url,
-                        'mirror_url': mirror_url,  # 添加镜像地址
-                        'release_notes': release_info.get('body', '')
+                        'mirror_url': mirror_url,
+                        'release_notes': release_info.get('body', ''),
+                        'published_at': release_info.get('published_at', '')
                     }
+                
                 return {'has_update': False}
+                
         except Exception as e:
             self.log.error(f"检查更新失败: {self.stack_error(e)}")
             return {'has_update': False, 'error': str(e)}
-
+    
     def is_newer_version(self, latest: str, current: str) -> bool:
-        """比较版本号，判断是否有更新"""
+        """比较版本号"""
         try:
-            # 移除版本号中的v前缀并分割成数字列表
-            latest_parts = list(map(int, latest.lstrip('v').split('.')))
-            current_parts = list(map(int, current.lstrip('v').split('.')))
+            # 清理版本号
+            latest_clean = latest.lstrip('v').strip()
+            current_clean = current.lstrip('v').strip()
             
-            # 确保两个版本号长度相同
+            # 分割版本号
+            latest_parts = list(map(int, latest_clean.split('.')))
+            current_parts = list(map(int, current_clean.split('.')))
+            
+            # 标准化长度
             max_len = max(len(latest_parts), len(current_parts))
             latest_parts += [0] * (max_len - len(latest_parts))
             current_parts += [0] * (max_len - len(current_parts))
             
+            # 比较
             return latest_parts > current_parts
+            
         except Exception as e:
             self.log.error(f"版本号比较失败: {e}")
             return False
-
-    async def download_update(self, url: str, dest_path: str) -> bool:
-        """下载更新文件"""
-        try:
-            self.log.info(f"开始下载更新: {url}")
-            async with httpx.AsyncClient(timeout=60) as client:
-                async with client.stream('GET', url) as response:
-                    response.raise_for_status()
-                    total_size = int(response.headers.get('content-length', 0))
-                    downloaded_size = 0
-                    
-                    with open(dest_path, 'wb') as f:
-                        async for chunk in response.aiter_bytes(chunk_size=8192):
-                            f.write(chunk)
-                            downloaded_size += len(chunk)
-                            # 可以添加进度计算逻辑
-                            
-            self.log.info(f"更新文件下载完成: {dest_path}")
-            return True
-        except Exception as e:
-            self.log.error(f"更新下载失败: {self.stack_error(e)}")
-            if os.path.exists(dest_path):
-                os.remove(dest_path)
-            return False
     
-    async def _try_mirror_download(self, url: str, dest_path: str) -> bool:
-        """尝试使用镜像下载"""
-        # 检查是否在中国大陆
-        if os.environ.get('IS_CN') == 'yes':
-            self.log.info("检测到中国大陆网络，尝试使用镜像下载")
-            
-            # 尝试解析GitHub release URL以获取镜像地址
-            mirror_url = self.convert_github_to_mirror(url)
-            if mirror_url:
-                self.log.info(f"使用镜像地址: {mirror_url}")
-                
-                # 尝试使用镜像地址下载
-                try:
-                    return await self.download_update_direct(mirror_url, dest_path)
-                except Exception as e:
-                    self.log.warning(f"镜像下载失败: {e}")
-        
-        return False
-
     def convert_github_to_mirror(self, github_url: str) -> str:
-        """将GitHub URL转换为国内镜像地址"""
-        try:
-            # 解析GitHub release URL
-            import re
-            
-            pattern = r'https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/(.+)'
-            match = re.match(pattern, github_url)
-            
-            if match:
-                owner, repo, tag, filename = match.groups()
-                
-                # 多种镜像源选择
-                mirror_sources = [
-                    f'https://wget.la/{github_url}'
-                    f'https://ghfast.top/{github_url}',
-                ]
-                
-                # 返回第一个可用的镜像源
-                for mirror_url in mirror_sources:
-                    self.log.info(f"生成镜像地址: {mirror_url}")
-                return mirror_sources[0]
-            
+        """转换为国内镜像地址"""
+        if not github_url:
             return ""
-        except Exception as e:
-            self.log.error(f"转换镜像地址失败: {e}")
-            return ""
-    
-    async def download_update_with_mirror(self, url: str, dest_path: str, progress_callback=None) -> bool:
-        """根据地区使用镜像或原始地址下载更新"""
-        try:
-            self.log.info(f"开始下载更新，检测网络环境...")
-            
-            # 检查是否在中国大陆
-            if os.environ.get('IS_CN') == 'yes':
-                self.log.info("检测到中国大陆网络，尝试使用镜像下载")
-                return await self._try_cn_download(url, dest_path, progress_callback)
-            else:
-                self.log.info("非中国大陆网络，直接使用原始地址下载")
-                return await self.download_update_direct(url, dest_path, progress_callback)
-            
-        except Exception as e:
-            self.log.error(f"更新下载失败: {self.stack_error(e)}")
-            if os.path.exists(dest_path):
-                os.remove(dest_path)
-            return False
-    
-    async def _try_cn_download(self, url: str, dest_path: str, progress_callback=None) -> bool:
-        """中国大陆地区下载逻辑"""
-        # 尝试解析GitHub release URL以获取镜像地址
-        mirror_url = self.convert_github_to_mirror(url)
-        if mirror_url:
-            self.log.info(f"使用镜像地址: {mirror_url}")
-            
-            # 先尝试镜像地址下载
-            try:
-                success = await self.download_update_direct(mirror_url, dest_path, progress_callback)
-                if success:
-                    return True
-                else:
-                    self.log.warning("镜像下载失败，尝试原始地址...")
-            except Exception as e:
-                self.log.warning(f"镜像下载异常: {e}，尝试原始地址...")
         
-        # 镜像失败或没有镜像地址，尝试原始地址
-        self.log.info("尝试使用原始地址下载...")
-        return await self.download_update_direct(url, dest_path, progress_callback)
+        # 常用镜像源
+        mirrors = [
+            f'https://ghfast.top/{github_url}',
+            f'https://wget.la/{github_url}'
+        ]
+        
+        return mirrors[0] if mirrors else ""
     
-    async def download_update_direct(self, url: str, dest_path: str, progress_callback=None) -> bool:
+    async def download_update_direct(self, url: str, dest_path: str, 
+                                   progress_callback=None) -> bool:
         """直接下载更新文件"""
         try:
             self.log.info(f"下载更新: {url}")
@@ -872,23 +1211,17 @@ class GuiBackend:
             async with httpx.AsyncClient(
                 timeout=60,
                 follow_redirects=True,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': '*/*',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                }
+                headers={'User-Agent': 'Mozilla/5.0'}
             ) as client:
-                # 先获取文件信息
+                # 获取文件大小
                 head_response = await client.head(url, follow_redirects=True)
-                final_url = str(head_response.url)
                 total_size = int(head_response.headers.get('content-length', 0))
                 
-                self.log.info(f"最终下载地址: {final_url.split('?')[0]}")
                 if total_size:
                     self.log.info(f"文件大小: {total_size / 1024 / 1024:.2f} MB")
                 
                 # 下载文件
-                async with client.stream('GET', final_url) as response:
+                async with client.stream('GET', url) as response:
                     response.raise_for_status()
                     
                     downloaded_size = 0
@@ -898,22 +1231,46 @@ class GuiBackend:
                             f.write(chunk)
                             downloaded_size += len(chunk)
                             
-                            # 调用进度回调
-                            if progress_callback and total_size:
-                                progress_callback(downloaded_size, total_size)
+                            # 更新进度
+                            if progress_callback and total_size > 0:
+                                progress = min(100, (downloaded_size / total_size) * 100)
+                                progress_callback(downloaded_size, total_size, progress)
                     
-                    self.log.info(f"文件下载完成: {dest_path} ({downloaded_size} 字节)")
+                    self.log.info(f"下载完成: {dest_path} ({downloaded_size} 字节)")
                     return True
                     
         except httpx.HTTPStatusError as e:
-            self.log.error(f"HTTP错误: {e.response.status_code} - {e}")
-            return False
-        except httpx.TimeoutException:
-            self.log.error("下载超时")
+            self.log.error(f"HTTP错误: {e.response.status_code}")
             return False
         except Exception as e:
             self.log.error(f"下载失败: {self.stack_error(e)}")
             return False
         finally:
+            # 清理空文件
             if os.path.exists(dest_path) and os.path.getsize(dest_path) == 0:
-                os.remove(dest_path)
+                try:
+                    os.remove(dest_path)
+                except:
+                    pass
+    
+    async def download_update_with_mirror(self, url: str, dest_path: str, 
+                                        progress_callback=None) -> bool:
+        """使用镜像下载更新"""
+        try:
+            # 如果在中国大陆，尝试镜像
+            if os.environ.get('IS_CN') == 'yes':
+                mirror_url = self.convert_github_to_mirror(url)
+                if mirror_url:
+                    self.log.info(f"尝试镜像下载: {mirror_url}")
+                    
+                    if await self.download_update_direct(mirror_url, dest_path, progress_callback):
+                        return True
+                    
+                    self.log.warning("镜像下载失败，尝试原始地址...")
+            
+            # 使用原始地址
+            return await self.download_update_direct(url, dest_path, progress_callback)
+            
+        except Exception as e:
+            self.log.error(f"镜像下载失败: {self.stack_error(e)}")
+            return False
