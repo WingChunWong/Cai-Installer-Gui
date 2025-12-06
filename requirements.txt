@@ -1,4 +1,13 @@
-aiofiles
-httpx
-vdf
-ttkbootstrap
+aiofiles==25.1.0
+anyio==4.12.0
+certifi==2025.11.12
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.11
+Nuitka==2.8.9
+ordered-set==4.1.0
+pillow==12.0.0
+ttkbootstrap==1.19.2
+vdf==3.4
+zstandard==0.25.0
