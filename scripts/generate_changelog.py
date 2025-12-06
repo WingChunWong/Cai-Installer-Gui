@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate changelog from git commits since last tag.
+自动生成变更日志脚本，基于 Git 提交记录，支持 Conventional Commits 规范和 gitmoji 表情符号。
 """
 
 import subprocess
@@ -95,7 +95,7 @@ def main():
         "test": "✅",
         "build": "📦",
         "ci": "👷",
-        "chore": "🔨",
+        "chore": "🔧",
         "other": "🚀",
     }
     groups = {
