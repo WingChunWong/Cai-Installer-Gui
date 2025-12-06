@@ -193,18 +193,35 @@ class GuiBackend:
             self.log.error(f'检查GitHub API速率时出错: {e}')
             return False
 
-    async def checkcn(self, client: httpx.AsyncClient):
+    async def checkcn(self, client: httpx.AsyncClient = None):
+        """检测是否在中国大陆"""
         try:
-            r = await client.get('https://mips.kugou.com/check/iscn?&format=json')
-            if not bool(r.json().get('flag')):
-                self.log.info(f"检测到您在非中国大陆地区 ({r.json().get('country')})，将使用GitHub官方下载源。")
-                os.environ['IS_CN'] = 'no'
-            else:
+            # 如果client为None，创建新的client
+            temp_client = None
+            try:
+                if client is None:
+                    temp_client = httpx.AsyncClient(timeout=10)
+                    client_to_use = temp_client
+                else:
+                    client_to_use = client
+                
+                r = await client_to_use.get('https://mips.kugou.com/check/iscn?&format=json', timeout=5)
+                if not bool(r.json().get('flag')):
+                    self.log.info(f"检测到您在非中国大陆地区 ({r.json().get('country')})，将使用GitHub官方下载源。")
+                    os.environ['IS_CN'] = 'no'
+                else:
+                    os.environ['IS_CN'] = 'yes'
+                    self.log.info("检测到您在中国大陆地区，将使用国内镜像。")
+            except Exception:
                 os.environ['IS_CN'] = 'yes'
-                self.log.info("检测到您在中国大陆地区，将使用国内镜像。")
+                self.log.warning('检查服务器位置失败，将默认使用国内加速CDN。')
+            finally:
+                if temp_client:
+                    await temp_client.aclose()
         except Exception:
+            # 如果检测失败，保守起见使用镜像
             os.environ['IS_CN'] = 'yes'
-            self.log.warning('检查服务器位置失败，将默认使用国内加速CDN。')
+            self.log.warning('网络检测失败，默认使用国内镜像。')
 
     async def fetch_branch_info(self, client: httpx.AsyncClient, url: str, headers: dict):
         try:
@@ -674,6 +691,9 @@ class GuiBackend:
         try:
             headers = self.get_github_headers()
             async with httpx.AsyncClient() as client:
+                # 检查网络环境
+                await self.checkcn(client)
+                
                 # 获取最新发布信息
                 url = "https://api.github.com/repos/WingChunWong/Cai-Installer-GUI/releases/latest"
                 response = await client.get(url, headers=headers)
@@ -684,16 +704,25 @@ class GuiBackend:
                 
                 # 比较版本号
                 if self.is_newer_version(latest_version, current_version):
+                    # 获取下载URL
+                    download_url = next(
+                        (asset['browser_download_url'] for asset in release_info.get('assets', []) 
+                        if asset['name'].endswith('.exe')), 
+                        ''
+                    )
+                    
+                    # 如果在中国大陆，生成镜像URL
+                    mirror_url = ""
+                    if os.environ.get('IS_CN') == 'yes' and download_url:
+                        mirror_url = self.convert_github_to_mirror(download_url)
+                    
                     return {
                         'has_update': True,
                         'latest_version': latest_version,
                         'current_version': current_version,
                         'release_url': release_info.get('html_url', ''),
-                        'download_url': next(
-                            (asset['browser_download_url'] for asset in release_info.get('assets', []) 
-                            if asset['name'].endswith('.exe')), 
-                            ''
-                        ),
+                        'download_url': download_url,
+                        'mirror_url': mirror_url,  # 添加镜像地址
                         'release_notes': release_info.get('body', '')
                     }
                 return {'has_update': False}
@@ -741,3 +770,78 @@ class GuiBackend:
             if os.path.exists(dest_path):
                 os.remove(dest_path)
             return False
+        
+    async def download_update_with_mirror(self, url: str, dest_path: str) -> bool:
+        """根据地区使用镜像或原始地址下载更新"""
+        try:
+            self.log.info(f"开始下载更新，检测网络环境...")
+            
+            # 检查是否在中国大陆
+            if os.environ.get('IS_CN') == 'yes':
+                self.log.info("检测到中国大陆网络，尝试使用镜像下载")
+                
+                # 尝试解析GitHub release URL以获取镜像地址
+                mirror_url = self.convert_github_to_mirror(url)
+                if mirror_url:
+                    self.log.info(f"使用镜像地址: {mirror_url}")
+                    urls_to_try = [mirror_url, url]  # 先尝试镜像，失败再尝试原始地址
+                else:
+                    self.log.warning("无法转换为镜像地址，使用原始地址")
+                    urls_to_try = [url]
+            else:
+                self.log.info("非中国大陆网络，使用原始GitHub地址")
+                urls_to_try = [url]
+            
+            # 尝试所有URL
+            for download_url in urls_to_try:
+                try:
+                    self.log.info(f"尝试下载: {download_url}")
+                    async with httpx.AsyncClient(timeout=60) as client:
+                        async with client.stream('GET', download_url) as response:
+                            response.raise_for_status()
+                            total_size = int(response.headers.get('content-length', 0))
+                            downloaded_size = 0
+                            
+                            with open(dest_path, 'wb') as f:
+                                async for chunk in response.aiter_bytes(chunk_size=8192):
+                                    f.write(chunk)
+                                    downloaded_size += len(chunk)
+                    
+                    self.log.info(f"更新文件下载完成: {dest_path}")
+                    return True
+                except Exception as e:
+                    self.log.warning(f"下载失败 (从 {download_url.split('/')[2] if len(download_url.split('/')) > 2 else download_url}): {e}")
+                    if os.path.exists(dest_path):
+                        os.remove(dest_path)
+                    continue
+            
+            self.log.error("所有下载源均失败")
+            return False
+            
+        except Exception as e:
+            self.log.error(f"更新下载失败: {self.stack_error(e)}")
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            return False
+
+    def convert_github_to_mirror(self, github_url: str) -> str:
+        """将GitHub URL转换为国内镜像地址"""
+        try:
+            # 解析GitHub release URL
+            # 格式: https://github.com/WingChunWong/Cai-Installer-GUI/releases/download/v1.0.0/Cai-Installer-GUI.exe
+            import re
+            
+            pattern = r'https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/(.+)'
+            match = re.match(pattern, github_url)
+            
+            if match:
+                owner, repo, tag, filename = match.groups()
+                
+                # 使用jsdelivr镜像
+                mirror_url = f'https://cdn.jsdelivr.net/gh/{owner}/{repo}@{tag}/{filename}'
+                return mirror_url
+            
+            return ""
+        except Exception as e:
+            self.log.error(f"转换镜像地址失败: {e}")
+            return ""
