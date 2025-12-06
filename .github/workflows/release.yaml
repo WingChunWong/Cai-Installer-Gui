@@ -29,6 +29,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Generate Changelog
+        run: |
+          python scripts/generate_changelog.py "${{ github.ref_name }}" > CHANGELOG.md
+        shell: bash
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
       - name: Build Executable with Nuitka
         run: |
           python -m nuitka ^
@@ -50,4 +56,5 @@ jobs:
         with:
           files: |
             Cai-Installer-Gui_${{ github.ref_name }}.exe
+          body_path: CHANGELOG.md
           name: ${{ github.ref_name }} # Release name matches the tag
