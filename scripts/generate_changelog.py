@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-自动生成变更日志脚本，基于 Git 提交记录，支持 Conventional Commits 规范和 gitmoji 表情符号。
+自动生成变更日志脚本
 """
 
 import subprocess
@@ -32,7 +32,7 @@ def tag_exists(tag):
 
 def get_commits_between(start_excl, end_incl):
     """Return list of (hash, subject) commits."""
-    # If end_incl does not exist, fallback to HEAD
+    # 处理标签不存在的情况
     if not tag_exists(end_incl):
         end_incl = "HEAD"
     if start_excl and not tag_exists(start_excl):
@@ -40,7 +40,6 @@ def get_commits_between(start_excl, end_incl):
     rev = f"{start_excl}..{end_incl}" if start_excl else end_incl
     result = run_git(["log", "--oneline", "--format=%h|%s", rev], check=False)
     if result.returncode != 0:
-        # maybe no commits? fallback to empty
         return []
     out = result.stdout.strip()
     commits = []
@@ -55,36 +54,45 @@ def main():
     if len(sys.argv) > 1:
         curr_tag = sys.argv[1]
     else:
-        # Try to get current tag from environment variable GITHUB_REF_NAME
         curr_tag = os.environ.get("GITHUB_REF_NAME")
         if not curr_tag:
-            print("Error: No current tag provided and GITHUB_REF_NAME not set.", file=sys.stderr)
+            print("Error: No current tag provided", file=sys.stderr)
             sys.exit(1)
+
+    # 获取hotfix标识（环境变量传递）
+    is_hotfix = os.environ.get("IS_HOTFIX", "false").lower() == "true"
 
     tags = get_tags()
     if curr_tag not in tags:
-        # maybe it's a new tag not yet in the list
         tags.append(curr_tag)
-        # sort by version (simple)
         tags.sort(key=lambda t: [int(x) for x in t.lstrip('v').split('.') if x.isdigit()], reverse=True)
 
-    # Find previous tag (the one before curr_tag)
-    prev_tag = None
-    for t in tags:
-        if t == curr_tag:
-            continue
-        prev_tag = t
-        break  # because tags are newest first, the first different tag is the previous release
-    # If no previous tag, we'll generate from beginning
-    print(f"Previous tag: {prev_tag or 'None'}", file=sys.stderr)
-    print(f"Current tag: {curr_tag}", file=sys.stderr)
+    # 确定提交范围（hotfix版本特殊处理）
+    if is_hotfix:
+        # hotfix: 对比当前标签与最新提交（HEAD）的差异
+        start_excl = curr_tag
+        end_incl = "HEAD"
+        display_tag = f"{curr_tag}_hotfix"
+    else:
+        # 正常版本: 对比当前标签与上一个标签的差异
+        prev_tag = None
+        for t in tags:
+            if t == curr_tag:
+                continue
+            prev_tag = t
+            break
+        start_excl = prev_tag
+        end_incl = curr_tag
+        display_tag = curr_tag
 
-    commits = get_commits_between(prev_tag, curr_tag)
+    print(f"Previous reference: {start_excl or 'None'}", file=sys.stderr)
+    print(f"Current reference: {end_incl}", file=sys.stderr)
+
+    commits = get_commits_between(start_excl, end_incl)
     if not commits:
         print("No commits found.", file=sys.stderr)
         sys.exit(0)
 
-    # Group by conventional commit type
     gitmoji = {
         "feat": "✨",
         "fix": "🐛",
@@ -98,60 +106,39 @@ def main():
         "chore": "🔧",
         "other": "🚀",
     }
-    groups = {
-        "feat": [],
-        "fix": [],
-        "docs": [],
-        "style": [],
-        "refactor": [],
-        "perf": [],
-        "test": [],
-        "build": [],
-        "ci": [],
-        "chore": [],
-        "other": []
-    }
+    groups = {k: [] for k in gitmoji.keys()}
+
     type_pattern = re.compile(r'^(\S*\s*)?(\w+)(?:\([^)]*\))?!?:\s*(.+)$')
     for hash_, subj in commits:
         match = type_pattern.match(subj)
-        if match:
-            ctype = match.group(2).lower()
-        else:
-            ctype = "other"
-        if ctype in groups:
-            groups[ctype].append((hash_, subj))
-        else:
-            groups["other"].append((hash_, subj))
+        ctype = match.group(2).lower() if match else "other"
+        groups[ctype].append((hash_, subj))
 
-    # Generate markdown
     lines = []
     lines.append("# What's Change:")
     lines.append("")
-    lines.append(f"## {curr_tag}")
-    if prev_tag:
-        lines.append(f"**Changes since {prev_tag}**\n")
+    lines.append(f"## {display_tag}")
+    if start_excl:
+        lines.append(f"**Changes since {start_excl}**\n")
     else:
         lines.append("**Initial release**\n")
 
     for gname, glist in groups.items():
         if not glist:
             continue
-        emoji = gitmoji.get(gname, "")
+        emoji = gitmoji[gname]
         lines.append(f"### {emoji} {gname.capitalize()}")
         for hash_, subj in glist:
             lines.append(f"- {hash_}: {subj}")
         lines.append("")
 
     output = "\n".join(lines)
-    # Write to stdout with UTF-8 encoding to avoid Windows encoding issues
     sys.stdout.buffer.write(output.encode('utf-8'))
 
-    # Write to file if environment variable CHANGELOG_FILE is set
     out_file = os.environ.get("CHANGELOG_FILE")
     if out_file:
         with open(out_file, "w", encoding="utf-8") as f:
             f.write(output)
-        print(f"Changelog written to {out_file}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
