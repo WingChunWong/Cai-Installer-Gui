@@ -79,7 +79,7 @@ jobs:
           --enable-plugin=tk-inter `
           --include-package=ttkbootstrap,httpx,aiofiles,vdf `
           --include-module=backend_gui `
-          --include-module=version  # 确保version.py被打包进可执行文件
+          --include-module=version `
           --assume-yes-for-downloads `
           frontend_gui.py
         shell: pwsh
