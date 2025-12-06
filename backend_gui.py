@@ -668,3 +668,76 @@ class GuiBackend:
             except Exception as e2:
                 self.log.error(f"备用搜索也失败: {e2}")
                 return []
+            
+    async def check_for_updates(self, current_version: str) -> dict:
+        """检查是否有新版本更新"""
+        try:
+            headers = self.get_github_headers()
+            async with httpx.AsyncClient() as client:
+                # 获取最新发布信息
+                url = "https://api.github.com/repos/WingChunWong/Cai-Installer-GUI/releases/latest"
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                
+                release_info = response.json()
+                latest_version = release_info.get('tag_name', '')
+                
+                # 比较版本号
+                if self.is_newer_version(latest_version, current_version):
+                    return {
+                        'has_update': True,
+                        'latest_version': latest_version,
+                        'current_version': current_version,
+                        'release_url': release_info.get('html_url', ''),
+                        'download_url': next(
+                            (asset['browser_download_url'] for asset in release_info.get('assets', []) 
+                            if asset['name'].endswith('.exe')), 
+                            ''
+                        ),
+                        'release_notes': release_info.get('body', '')
+                    }
+                return {'has_update': False}
+        except Exception as e:
+            self.log.error(f"检查更新失败: {self.stack_error(e)}")
+            return {'has_update': False, 'error': str(e)}
+
+    def is_newer_version(self, latest: str, current: str) -> bool:
+        """比较版本号，判断是否有更新"""
+        try:
+            # 移除版本号中的v前缀并分割成数字列表
+            latest_parts = list(map(int, latest.lstrip('v').split('.')))
+            current_parts = list(map(int, current.lstrip('v').split('.')))
+            
+            # 确保两个版本号长度相同
+            max_len = max(len(latest_parts), len(current_parts))
+            latest_parts += [0] * (max_len - len(latest_parts))
+            current_parts += [0] * (max_len - len(current_parts))
+            
+            return latest_parts > current_parts
+        except Exception as e:
+            self.log.error(f"版本号比较失败: {e}")
+            return False
+
+    async def download_update(self, url: str, dest_path: str) -> bool:
+        """下载更新文件"""
+        try:
+            self.log.info(f"开始下载更新: {url}")
+            async with httpx.AsyncClient(timeout=60) as client:
+                async with client.stream('GET', url) as response:
+                    response.raise_for_status()
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded_size = 0
+                    
+                    with open(dest_path, 'wb') as f:
+                        async for chunk in response.aiter_bytes(chunk_size=8192):
+                            f.write(chunk)
+                            downloaded_size += len(chunk)
+                            # 可以添加进度计算逻辑
+                            
+            self.log.info(f"更新文件下载完成: {dest_path}")
+            return True
+        except Exception as e:
+            self.log.error(f"更新下载失败: {self.stack_error(e)}")
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            return False
