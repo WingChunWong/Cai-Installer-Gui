@@ -28,12 +28,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # 新增步骤：生成版本信息文件
+      - name: Generate Version File
+        run: |
+          # 从标签中提取版本号，去除前缀v
+          VERSION=${{ github.ref_name }}
+          VERSION=${VERSION:1}
+          echo "version = '$VERSION'" > version.py
+          echo "Generated version.py with version: $VERSION"
+        shell: bash
+
       - name: Generate Changelog
         run: |
           python scripts/generate_changelog.py "${{ github.ref_name }}" > CHANGELOG.md
         shell: bash
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
+
       - name: Build Executable with Nuitka
         run: |
           python -m nuitka `
@@ -42,6 +53,7 @@ jobs:
           --enable-plugin=tk-inter `
           --include-package=ttkbootstrap,httpx,aiofiles,vdf `
           --include-module=backend_gui `
+          --include-module=version `
           --assume-yes-for-downloads `
           frontend_gui.py
         shell: pwsh
