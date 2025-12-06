@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-自动生成变更日志脚本
+自动生成变更日志脚本，支持手动版本号和hotfix标识
 """
 
 import subprocess
@@ -32,7 +32,6 @@ def tag_exists(tag):
 
 def get_commits_between(start_excl, end_incl):
     """Return list of (hash, subject) commits."""
-    # 处理标签不存在的情况
     if not tag_exists(end_incl):
         end_incl = "HEAD"
     if start_excl and not tag_exists(start_excl):
@@ -51,6 +50,7 @@ def get_commits_between(start_excl, end_incl):
     return commits
 
 def main():
+    # 获取当前版本号（支持手动输入）
     if len(sys.argv) > 1:
         curr_tag = sys.argv[1]
     else:
@@ -59,22 +59,23 @@ def main():
             print("Error: No current tag provided", file=sys.stderr)
             sys.exit(1)
 
-    # 获取hotfix标识（环境变量传递）
+    # 获取hotfix标识
     is_hotfix = os.environ.get("IS_HOTFIX", "false").lower() == "true"
 
     tags = get_tags()
+    # 确保当前版本号在标签列表中（手动输入时可能不存在）
     if curr_tag not in tags:
         tags.append(curr_tag)
         tags.sort(key=lambda t: [int(x) for x in t.lstrip('v').split('.') if x.isdigit()], reverse=True)
 
-    # 确定提交范围（hotfix版本特殊处理）
+    # 确定提交范围
     if is_hotfix:
-        # hotfix: 对比当前标签与最新提交（HEAD）的差异
+        # Hotfix版本：对比当前版本与最新提交
         start_excl = curr_tag
         end_incl = "HEAD"
         display_tag = f"{curr_tag}_hotfix"
     else:
-        # 正常版本: 对比当前标签与上一个标签的差异
+        # 正常版本：对比当前版本与上一版本
         prev_tag = None
         for t in tags:
             if t == curr_tag:
@@ -93,6 +94,7 @@ def main():
         print("No commits found.", file=sys.stderr)
         sys.exit(0)
 
+    # 提交类型分组与日志生成
     gitmoji = {
         "feat": "✨",
         "fix": "🐛",
