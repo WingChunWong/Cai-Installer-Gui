@@ -112,7 +112,7 @@ class GameSelectionDialog(tk.Toplevel):
 class CaiInstallGUI(ttk.Window):
     """主GUI类"""
     def __init__(self):
-        super().__init__(themename="darkly", title="Cai Install GUI")
+        super().__init__(themename="darkly", title=f"Cai Install GUI v{version}")
         self.geometry("1000x700")
         self.minsize(800, 600)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -123,7 +123,7 @@ class CaiInstallGUI(ttk.Window):
         self.backend = GuiBackend(self.log)
         self.create_menu()
 
-        super().__init__(themename="darkly", title=f"Cai Install GUI v{version}")
+        
         
         # 设置为最大化
         self.state('zoomed')
