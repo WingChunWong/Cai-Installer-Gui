@@ -1,3 +1,4 @@
+from pathlib import Path
 import sys
 import os
 import logging
@@ -8,8 +9,7 @@ from tkinter import ttk, messagebox, scrolledtext
 import threading
 from typing import List
 import subprocess
-import tempfile
-from pathlib import Path
+import tempfile         
 
 # 版本信息
 try:
@@ -37,112 +37,6 @@ if sys.platform == 'win32':
         windll.user32.SetProcessDPIAware()
     except:
         pass
-
-# 添加：检测系统是否使用深色模式
-def is_system_dark_mode():
-    """检测系统是否使用深色模式"""
-    if sys.platform == 'win32':
-        try:
-            from ctypes import windll, wintypes, byref
-            # 检测Windows深色模式
-            reg_key = windll.advapi32.RegOpenKeyExW(
-                windll.advapi32.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-                0,
-                windll.advapi32.KEY_READ
-            )
-            
-            if reg_key:
-                value = wintypes.DWORD()
-                value_size = wintypes.DWORD(sizeof(wintypes.DWORD))
-                
-                if windll.advapi32.RegQueryValueExW(
-                    reg_key, "AppsUseLightTheme", 0, 0,
-                    byref(value), byref(value_size)
-                ) == 0:
-                    windll.advapi32.RegCloseKey(reg_key)
-                    return value.value == 0  # 0表示深色模式，1表示浅色模式
-                
-                windll.advapi32.RegCloseKey(reg_key)
-        except:
-            pass
-    
-    # 默认返回False（浅色模式）
-    return False
-
-# 颜色方案
-class ColorScheme:
-    """颜色方案类，支持浅色和深色模式"""
-    
-    def __init__(self, dark_mode=False):
-        self.dark_mode = dark_mode
-        self.setup_colors()
-    
-    def setup_colors(self):
-        """设置颜色方案"""
-        if self.dark_mode:
-            # 深色模式颜色
-            self.bg = "#1e1e1e"
-            self.fg = "#d4d4d4"
-            self.widget_bg = "#252526"
-            self.widget_fg = "#d4d4d4"
-            self.entry_bg = "#3c3c3c"
-            self.entry_fg = "#d4d4d4"
-            self.button_bg = "#0e639c"
-            self.button_fg = "#ffffff"
-            self.accent_bg = "#007acc"
-            self.accent_fg = "#ffffff"
-            self.listbox_bg = "#252526"
-            self.listbox_fg = "#d4d4d4"
-            self.listbox_select = "#0e639c"
-            self.text_bg = "#1e1e1e"
-            self.text_fg = "#d4d4d4"
-            self.border = "#3c3c3c"
-            self.highlight = "#37373d"
-            self.disabled = "#5a5a5a"
-            self.success = "#4ec9b0"
-            self.warning = "#d7ba7d"
-            self.error = "#f14c4c"
-            self.info = "#4ec9b0"
-            self.tab_bg = "#2d2d30"
-            self.tab_fg = "#d4d4d4"
-            self.tab_select = "#1e1e1e"
-            self.status_bg = "#007acc"
-            self.status_fg = "#ffffff"
-        else:
-            # 浅色模式颜色
-            self.bg = "#f0f0f0"
-            self.fg = "#333333"
-            self.widget_bg = "#ffffff"
-            self.widget_fg = "#333333"
-            self.entry_bg = "#ffffff"
-            self.entry_fg = "#333333"
-            self.button_bg = "#0078D4"
-            self.button_fg = "#ffffff"
-            self.accent_bg = "#0078D4"
-            self.accent_fg = "#ffffff"
-            self.listbox_bg = "#ffffff"
-            self.listbox_fg = "#333333"
-            self.listbox_select = "#0078D4"
-            self.text_bg = "#ffffff"
-            self.text_fg = "#333333"
-            self.border = "#cccccc"
-            self.highlight = "#e6f3ff"
-            self.disabled = "#a0a0a0"
-            self.success = "#28a745"
-            self.warning = "#ff6b35"
-            self.error = "#dc3545"
-            self.info = "#17a2b8"
-            self.tab_bg = "#f8f9fa"
-            self.tab_fg = "#495057"
-            self.tab_select = "#ffffff"
-            self.status_bg = "#0078D4"
-            self.status_fg = "#ffffff"
-    
-    def toggle_mode(self):
-        """切换模式"""
-        self.dark_mode = not self.dark_mode
-        self.setup_colors()
 
 class ModernButton(ttk.Button):
     """现代化按钮样式"""
@@ -174,10 +68,6 @@ class SimpleNotepad(tk.Toplevel):
         self.transient(parent)
         self.title(f"编辑文件 - {filename}")
         self.file_path = Path(file_path)
-        self.parent = parent
-        
-        # 获取颜色方案
-        self.colors = parent.colors if hasattr(parent, 'colors') else ColorScheme()
         
         # 设置窗口大小和位置
         self.geometry("800x600")
@@ -192,9 +82,6 @@ class SimpleNotepad(tk.Toplevel):
         x = parent_x + (parent_width - 800) // 2
         y = parent_y + (parent_height - 600) // 2
         self.geometry(f"800x600+{x}+{y}")
-        
-        # 应用颜色方案
-        self.configure(bg=self.colors.bg)
         
         # 创建主框架
         main_frame = ttk.Frame(self)
@@ -217,10 +104,7 @@ class SimpleNotepad(tk.Toplevel):
             wrap=tk.WORD, 
             font=('Consolas', 10),
             relief=tk.FLAT,
-            borderwidth=1,
-            bg=self.colors.text_bg,
-            fg=self.colors.text_fg,
-            insertbackground=self.colors.fg
+            borderwidth=1
         )
         self.text_widget.pack(fill=tk.BOTH, expand=True)
         self.text_widget.insert(tk.END, content)
@@ -255,10 +139,6 @@ class GameSelectionDialog(tk.Toplevel):
         self.title(title)
         self.games = games
         self.result = None
-        self.parent = parent
-        
-        # 获取颜色方案
-        self.colors = parent.colors if hasattr(parent, 'colors') else ColorScheme()
         
         # 设置窗口大小
         self.geometry("600x400")
@@ -273,9 +153,6 @@ class GameSelectionDialog(tk.Toplevel):
         x = parent_x + (parent_width - 600) // 2
         y = parent_y + (parent_height - 400) // 2
         self.geometry(f"600x400+{x}+{y}")
-        
-        # 应用颜色方案
-        self.configure(bg=self.colors.bg)
         
         # 主框架
         main_frame = ttk.Frame(self)
@@ -303,12 +180,8 @@ class GameSelectionDialog(tk.Toplevel):
             font=('Consolas', 10),
             relief=tk.FLAT,
             borderwidth=1,
-            selectbackground=self.colors.listbox_select,
-            selectforeground=self.colors.button_fg,
-            bg=self.colors.listbox_bg,
-            fg=self.colors.listbox_fg,
-            highlightbackground=self.colors.border,
-            highlightcolor=self.colors.border
+            selectbackground='#0078D4',
+            selectforeground='white'
         )
         self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
@@ -349,10 +222,6 @@ class CaiInstallGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(f"Cai Install GUI v{CURRENT_VERSION}")
-        
-        # 检测系统黑暗模式并设置颜色方案
-        self.dark_mode = is_system_dark_mode()
-        self.colors = ColorScheme(self.dark_mode)
         
         # 设置窗口初始大小和位置
         self.root.geometry("1200x800")
@@ -406,99 +275,43 @@ class CaiInstallGUI:
         
         # 尝试使用系统主题
         available_themes = style.theme_names()
+        if 'vista' in available_themes:
+            style.theme_use('vista')
+        elif 'winnative' in available_themes:
+            style.theme_use('winnative')
         
-        # 根据黑暗模式选择主题
-        if self.dark_mode:
-            # 深色模式下的主题设置
-            if 'vista' in available_themes:
-                style.theme_use('vista')
-            elif 'winnative' in available_themes:
-                style.theme_use('winnative')
-            
-            # 配置深色模式下的颜色
-            self.root.configure(bg=self.colors.bg)
-            
-            # 配置Frame样式
-            style.configure('TFrame', background=self.colors.bg)
-            style.configure('TLabelframe', background=self.colors.bg, foreground=self.colors.fg)
-            style.configure('TLabelframe.Label', background=self.colors.widget_bg, foreground=self.colors.fg)
-            
-            # 配置Label样式
-            style.configure('TLabel', background=self.colors.bg, foreground=self.colors.fg)
-            style.configure('Header.TLabel', font=('Consolas', 12, 'bold'), 
-                          background=self.colors.bg, foreground=self.colors.fg)
-            style.configure('Subheader.TLabel', font=('Consolas', 10, 'bold'),
-                          background=self.colors.bg, foreground=self.colors.fg)
-            
-            # 配置按钮样式
-            style.configure('TButton', background=self.colors.button_bg, foreground=self.colors.button_fg)
-            style.configure('Modern.TButton', padding=8, relief='flat', 
-                          font=('Consolas', 10),
-                          background=self.colors.button_bg, 
-                          foreground=self.colors.button_fg)
-            style.configure('Accent.TButton', padding=8, relief='flat', 
-                          font=('Consolas', 10, 'bold'),
-                          background=self.colors.accent_bg, 
-                          foreground=self.colors.accent_fg)
-            
-            # 配置输入框样式
-            style.configure('TEntry', fieldbackground=self.colors.entry_bg, 
-                          foreground=self.colors.entry_fg)
-            style.configure('Modern.TEntry', padding=5, relief='flat', 
-                          font=('Consolas', 10),
-                          fieldbackground=self.colors.entry_bg, 
-                          foreground=self.colors.entry_fg)
-            
-            # 配置下拉框样式
-            style.configure('TCombobox', fieldbackground=self.colors.entry_bg, 
-                          foreground=self.colors.entry_fg, background=self.colors.widget_bg)
-            style.configure('Modern.TCombobox', padding=5, font=('Consolas', 10),
-                          fieldbackground=self.colors.entry_bg, 
-                          foreground=self.colors.entry_fg)
-            
-            # 配置复选框样式
-            style.configure('TCheckbutton', background=self.colors.bg, 
-                          foreground=self.colors.fg)
-            style.configure('Modern.TCheckbutton', font=('Consolas', 10),
-                          background=self.colors.bg, foreground=self.colors.fg)
-            
-            # 配置滚动条样式
-            style.configure('TScrollbar', background=self.colors.widget_bg, 
-                          troughcolor=self.colors.bg)
-            
-            # 配置选项卡样式
-            style.configure('TNotebook', background=self.colors.tab_bg)
-            style.configure('TNotebook.Tab', background=self.colors.tab_bg, 
-                          foreground=self.colors.tab_fg)
-            style.map('TNotebook.Tab', 
-                     background=[('selected', self.colors.tab_select)],
-                     foreground=[('selected', self.colors.tab_fg)])
-        else:
-            # 浅色模式
-            if 'vista' in available_themes:
-                style.theme_use('vista')
-            elif 'winnative' in available_themes:
-                style.theme_use('winnative')
-            
-            # 配置现代化按钮样式
-            style.configure('Modern.TButton', padding=8, relief='flat', 
-                          font=('Consolas', 10))
-            style.configure('Accent.TButton', padding=8, relief='flat', 
-                          font=('Consolas', 10, 'bold'))
-            
-            # 配置输入框样式
-            style.configure('Modern.TEntry', padding=5, relief='flat', 
-                          font=('Consolas', 10))
-            
-            # 配置下拉框样式
-            style.configure('Modern.TCombobox', padding=5, font=('Consolas', 10))
-            
-            # 配置复选框样式
-            style.configure('Modern.TCheckbutton', font=('Consolas', 10))
-            
-            # 配置标签样式
-            style.configure('Header.TLabel', font=('Consolas', 12, 'bold'))
-            style.configure('Subheader.TLabel', font=('Consolas', 10, 'bold'))
+        # 配置现代化按钮样式
+        style.configure('Modern.TButton',
+                       padding=8,
+                       relief='flat',
+                       font=('Consolas', 10))
+        
+        style.configure('Accent.TButton',
+                       padding=8,
+                       relief='flat',
+                       font=('Consolas', 10, 'bold'))
+        
+        # 配置输入框样式
+        style.configure('Modern.TEntry',
+                       padding=5,
+                       relief='flat',
+                       font=('Consolas', 10))
+        
+        # 配置下拉框样式
+        style.configure('Modern.TCombobox',
+                       padding=5,
+                       font=('Consolas', 10))
+        
+        # 配置复选框样式
+        style.configure('Modern.TCheckbutton',
+                       font=('Consolas', 10))
+        
+        # 配置标签样式
+        style.configure('Header.TLabel',
+                       font=('Consolas', 12, 'bold'))
+        
+        style.configure('Subheader.TLabel',
+                       font=('Consolas', 10, 'bold'))
 
     def setup_logging(self):
         """设置日志系统"""
@@ -506,18 +319,17 @@ class CaiInstallGUI:
         logger.setLevel(logging.INFO)
         
         class GuiHandler(logging.Handler):
-            def __init__(self, text_widget, colors):
+            def __init__(self, text_widget):
                 super().__init__()
                 self.text_widget = text_widget
-                self.colors = colors
                 self.setFormatter(logging.Formatter('%(message)s'))
                 
                 # 配置标签颜色
-                self.text_widget.tag_config('INFO', foreground=self.colors.fg)
-                self.text_widget.tag_config('WARNING', foreground=self.colors.warning)
-                self.text_widget.tag_config('ERROR', foreground=self.colors.error)
-                self.text_widget.tag_config('DEBUG', foreground=self.colors.info)
-                self.text_widget.tag_config('SUCCESS', foreground=self.colors.success)
+                self.text_widget.tag_config('INFO', foreground='#333333')
+                self.text_widget.tag_config('WARNING', foreground='#ff6b35')
+                self.text_widget.tag_config('ERROR', foreground='#dc3545')
+                self.text_widget.tag_config('DEBUG', foreground='#17a2b8')
+                self.text_widget.tag_config('SUCCESS', foreground='#28a745')
             
             def emit(self, record):
                 msg = self.format(record)
@@ -533,7 +345,7 @@ class CaiInstallGUI:
                 except tk.TclError:
                     pass
         
-        gui_handler = GuiHandler(self.log_text_widget, self.colors)
+        gui_handler = GuiHandler(self.log_text_widget)
         logger.addHandler(gui_handler)
         return logger
 
@@ -551,9 +363,6 @@ class CaiInstallGUI:
         settings_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="设置", menu=settings_menu)
         settings_menu.add_command(label="编辑配置", command=self.show_settings_dialog)
-        settings_menu.add_separator()
-        settings_menu.add_command(label=f"{'切换到浅色模式' if self.dark_mode else '切换到深色模式'}", 
-                                command=self.toggle_dark_mode)
         
         # 工具菜单
         tools_menu = tk.Menu(menubar, tearoff=0)
@@ -565,7 +374,7 @@ class CaiInstallGUI:
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="帮助", menu=help_menu)
         help_menu.add_command(label="项目主页", command=lambda: webbrowser.open('https://github.com/WingChunWong/Cai-Installer-GUI'))
-        help_menu.add_command(label="查看教程", command=lambda: webbrowser.open('https://docs.qq.com/doc/DTUp3Z2Fkd2pVRGtX?dver='))
+        help_menu.add_command(label="禁止倒卖", command=lambda: webbrowser.open('https://docs.qq.com/doc/DTUp3Z2Fkd2pVRGtX?dver='))
         help_menu.add_separator()
         help_menu.add_command(label="检查更新", command=self.check_for_updates)
         help_menu.add_command(label="关于", command=self.show_about_dialog)
@@ -697,10 +506,7 @@ class CaiInstallGUI:
             font=('Consolas', 10),
             height=15,
             relief=tk.FLAT,
-            borderwidth=1,
-            bg=self.colors.text_bg,
-            fg=self.colors.text_fg,
-            insertbackground=self.colors.fg
+            borderwidth=1
         )
         self.log_text_widget.pack(fill=tk.BOTH, expand=True)
 
@@ -732,13 +538,7 @@ class CaiInstallGUI:
             font=('Consolas', 9),
             selectmode=tk.EXTENDED,
             relief=tk.FLAT,
-            borderwidth=1,
-            bg=self.colors.listbox_bg,
-            fg=self.colors.listbox_fg,
-            selectbackground=self.colors.listbox_select,
-            selectforeground=self.colors.button_fg,
-            highlightbackground=self.colors.border,
-            highlightcolor=self.colors.border
+            borderwidth=1
         )
         self.file_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
@@ -761,52 +561,8 @@ class CaiInstallGUI:
         # 添加版本信息
         version_label = ttk.Label(self.status_bar, text=f"版本: {CURRENT_VERSION}", relief=tk.FLAT)
         version_label.pack(side=tk.RIGHT, padx=10, pady=3)
-        
-        # 添加黑暗模式指示器
-        mode_indicator = ttk.Label(self.status_bar, text="🌙" if self.dark_mode else "☀️", relief=tk.FLAT)
-        mode_indicator.pack(side=tk.RIGHT, padx=(0, 10), pady=3)
 
-    def toggle_dark_mode(self):
-        """切换黑暗模式"""
-        self.dark_mode = not self.dark_mode
-        self.colors.toggle_mode()
-        
-        # 重新设置样式
-        self.setup_styles()
-        
-        # 更新日志颜色
-        for handler in self.log.handlers:
-            if hasattr(handler, 'colors'):
-                handler.colors = self.colors
-                handler.text_widget.tag_config('INFO', foreground=self.colors.fg)
-                handler.text_widget.tag_config('WARNING', foreground=self.colors.warning)
-                handler.text_widget.tag_config('ERROR', foreground=self.colors.error)
-                handler.text_widget.tag_config('DEBUG', foreground=self.colors.info)
-                handler.text_widget.tag_config('SUCCESS', foreground=self.colors.success)
-        
-        # 更新日志文本框颜色
-        self.log_text_widget.configure(bg=self.colors.text_bg, fg=self.colors.text_fg, 
-                                      insertbackground=self.colors.fg)
-        
-        # 更新文件列表颜色
-        self.file_list.configure(bg=self.colors.listbox_bg, fg=self.colors.listbox_fg,
-                               selectbackground=self.colors.listbox_select,
-                               selectforeground=self.colors.button_fg,
-                               highlightbackground=self.colors.border,
-                               highlightcolor=self.colors.border)
-        
-        # 更新菜单项文本
-        menubar = self.root.config('menu')[-1]
-        settings_menu = menubar.children['!menu'].children['!menu']
-        settings_menu.entryconfig(2, label=f"{'切换到浅色模式' if self.dark_mode else '切换到深色模式'}")
-        
-        # 更新状态栏指示器
-        for widget in self.status_bar.winfo_children():
-            if widget.winfo_class() == 'TLabel' and widget.cget('text') in ['🌙', '☀️']:
-                widget.configure(text="🌙" if self.dark_mode else "☀️")
-        
-        self.log.info(f"已切换到{'深色' if self.dark_mode else '浅色'}模式")
-
+    # 以下方法保持原有功能，但使用新的控件样式
     def clear_log(self):
         self.log_text_widget.configure(state='normal')
         self.log_text_widget.delete(1.0, tk.END)
@@ -1093,73 +849,16 @@ class CaiInstallGUI:
 本项目采用GNU GPLv3开源许可证
 完全免费，请勿用于商业用途。"""
         
-        # 创建自定义对话框以支持黑暗模式
-        dialog = tk.Toplevel(self.root)
-        dialog.title("关于")
-        dialog.transient(self.root)
-        
-        # 应用颜色方案
-        dialog.configure(bg=self.colors.bg)
-        
-        # 设置窗口大小和位置
-        dialog.geometry("400x300")
-        dialog.minsize(300, 200)
-        
-        # 居中显示
-        dialog.update_idletasks()
-        parent_x = self.root.winfo_x()
-        parent_y = self.root.winfo_y()
-        parent_width = self.root.winfo_width()
-        parent_height = self.root.winfo_height()
-        x = parent_x + (parent_width - 400) // 2
-        y = parent_y + (parent_height - 300) // 2
-        dialog.geometry(f"400x300+{x}+{y}")
-        
-        # 主框架
-        main_frame = ttk.Frame(dialog, padding=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # 标题
-        title_label = ttk.Label(main_frame, text="Cai Install GUI", 
-                               font=('Consolas', 14, 'bold'),
-                               style='Header.TLabel')
-        title_label.pack(pady=(0, 10))
-        
-        # 内容文本
-        text_widget = scrolledtext.ScrolledText(
-            main_frame,
-            wrap=tk.WORD,
-            height=10,
-            font=('Consolas', 10),
-            relief=tk.FLAT,
-            borderwidth=1,
-            bg=self.colors.text_bg,
-            fg=self.colors.text_fg,
-            state='disabled'
-        )
-        text_widget.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
-        text_widget.configure(state='normal')
-        text_widget.insert(tk.END, about_text)
-        text_widget.configure(state='disabled')
-        
-        # 按钮
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X)
-        
-        close_btn = ModernButton(button_frame, text="关闭", command=dialog.destroy)
-        close_btn.pack(side=tk.RIGHT)
+        messagebox.showinfo("关于", about_text)
 
     def show_settings_dialog(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("编辑配置")
         dialog.transient(self.root)
         
-        # 应用颜色方案
-        dialog.configure(bg=self.colors.bg)
-        
         # 设置窗口大小和位置
-        dialog.geometry("500x400")
-        dialog.minsize(500, 400)
+        dialog.geometry("500x350")
+        dialog.minsize(800, 400)
         
         # 居中显示
         dialog.update_idletasks()
@@ -1168,8 +867,8 @@ class CaiInstallGUI:
         parent_width = self.root.winfo_width()
         parent_height = self.root.winfo_height()
         x = parent_x + (parent_width - 500) // 2
-        y = parent_y + (parent_height - 400) // 2
-        dialog.geometry(f"500x400+{x}+{y}")
+        y = parent_y + (parent_height - 350) // 2
+        dialog.geometry(f"500x350+{x}+{y}")
         
         # 主框架
         main_frame = ttk.Frame(dialog, padding=20)
@@ -1346,9 +1045,6 @@ class CaiInstallGUI:
         dialog.title("发现新版本")
         dialog.transient(self.root)
         
-        # 应用颜色方案
-        dialog.configure(bg=self.colors.bg)
-        
         # 设置窗口大小
         dialog.geometry("600x500")
         dialog.minsize(500, 400)
@@ -1370,8 +1066,7 @@ class CaiInstallGUI:
         # 标题
         title_label = ttk.Label(main_frame, 
                                text="发现新版本！",
-                               font=('Consolas', 14, 'bold'),
-                               style='Header.TLabel')
+                               font=('Consolas', 14, 'bold'))
         title_label.pack(anchor=tk.W, pady=(0, 10))
         
         # 版本信息
@@ -1399,9 +1094,7 @@ class CaiInstallGUI:
             height=10,
             font=('Consolas', 10),
             relief=tk.FLAT,
-            borderwidth=1,
-            bg=self.colors.text_bg,
-            fg=self.colors.text_fg
+            borderwidth=1
         )
         notes_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
         notes_text.insert(tk.END, update_info.get('release_notes', '暂无更新说明'))
@@ -1436,9 +1129,6 @@ class CaiInstallGUI:
         progress_dialog.title("正在更新")
         progress_dialog.transient(self.root)
         progress_dialog.geometry("400x150")
-        
-        # 应用颜色方案
-        progress_dialog.configure(bg=self.colors.bg)
         
         # 居中显示
         progress_dialog.update_idletasks()
@@ -1507,16 +1197,9 @@ class ManualSelectionDialog(tk.Toplevel):
         self.transient(parent)
         self.title(title or "选择解锁工具")
         self.result = None
-        self.parent = parent
-        
-        # 获取颜色方案
-        self.colors = parent.colors if hasattr(parent, 'colors') else ColorScheme()
         
         # 设置窗口大小
         self.geometry("400x200")
-        
-        # 应用颜色方案
-        self.configure(bg=self.colors.bg)
         
         # 居中显示
         self.update_idletasks()
