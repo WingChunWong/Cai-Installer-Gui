@@ -52,19 +52,29 @@
 - **SteamTools 自动更新模式**：启用后，清单版本将浮动更新（不锁定特定版本）。
 - **入库后自动重启 Steam**：处理完成后是否自动重启 Steam。
 
+### 获取 Github Personal Token
+
+具体步骤:
+1. 登录 GitHub：在浏览器中打开 github.com 并登录你的账户。
+2. 进入设置：点击页面右上角的个人资料照片，然后选择 Settings (设置)。
+3. 找到开发者设置：在左侧边栏中，找到并点击 Developer settings (开发者设置)。
+4. 选择 Classic Tokens：在左侧边栏的 "Personal access tokens" (个人访问令牌) 下，点击 Tokens (classic) (令牌(经典))。
+5. 生成新令牌：点击 Generate new token (生成新令牌)，然后选择 Generate new token (classic) (生成新令牌(经典))。
+6. 配置令牌信息：
+   1. Note (备注)：给你的令牌起一个描述性的名字（例如 "My CLI Token"）。
+   2. Expiration (到期时间)：选择令牌的过期时间（例如 30天, 90天或自定义）。
+   3. Select scopes (选择范围)：根据需要勾选权限。如果你要从命令行访问仓库，至少需要勾选 `repo` 及其子项。
+7. 生成并复制：点击 Generate token (生成令牌) 按钮。系统会立即显示你的令牌，立即复制这个字符串，因为你离开此页面后将无法再次看到明文。
+
 ## 常见问题
 
 ### 1. 无法检测到 Steam 路径
 - 请确保 Steam 已安装，或手动在设置中指定 Steam 安装目录。
 
-### 2. 下载清单失败
-- 检查网络连接，若在国内可尝试启用“使用镜像”选项（程序会自动检测）。
-- 若使用 GitHub 源，可配置 Personal Token 以提高成功率。
-
-### 3. 解锁工具冲突
+### 2. 解锁工具冲突
 - 若同时检测到 SteamTools 和 GreenLuma，程序会提示冲突，请卸载其中一个。
 
-### 4. 更新失败
+### 3. 更新失败
 - 更新下载可能因网络问题失败，可手动从 [Releases](https://github.com/WingChunWong/Cai-Installer-GUI/releases) 页面下载最新版本。
 
 ## 项目结构
@@ -86,16 +96,7 @@ Cai-Installer-GUI/
 
 ## 开发与贡献
 
-欢迎提交 Issue 或 Pull Request 参与项目改进。
-
-### 版本发布
-
-版本号遵循语义化版本（SemVer），发布流程包括：
-1. 更新 `version.py` 中的 `__version__`
-2. 使用 `scripts/generate_changelog.py` 生成变更日志
-3. 创建 Git 标签并推送
-4. 在 GitHub Releases 中发布
-
+欢迎提交 Issue 或 Pull Request 参与项目改进
 ## 许可证
 
 本项目基于原项目的 GPL3.0 协议进行二次开发，遵循相同许可证条款。详情请参阅 [LICENSE](LICENSE) 文件。
