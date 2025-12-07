@@ -1,4 +1,5 @@
 # frontend_gui.py
+from datetime import datetime, timedelta
 import sys
 import os
 import logging
@@ -1129,6 +1130,73 @@ class CaiInstallGUI:
                                 text=f"最新版本: {update_info['latest_version']}",
                                 font=('Consolas', 11, 'bold'))
         latest_label.pack(anchor=tk.W, pady=(2, 0))
+        
+        # 网络和地区信息
+        network_frame = ttk.Frame(version_frame)
+        network_frame.pack(anchor=tk.W, pady=(5, 0))
+        
+        # 从后端获取国家代码
+        current_country = self.backend.get_current_country()
+        
+        # 根据地区决定使用的源
+        if os.environ.get('IS_CN') == 'yes':
+            network_text = f"IP归属地为{current_country}，将会使用镜像源"
+            network_color = 'green'
+        else:
+            network_text = f"IP归属地为{current_country}，将会使用GitHub源"
+            network_color = 'blue'
+        
+        network_label = ttk.Label(network_frame,
+                                text=network_text,
+                                font=('Consolas', 9),
+                                foreground=network_color)
+        network_label.pack(anchor=tk.W)
+        
+        # 更新时间 (UTC+8)
+        if update_info.get('published_at'):
+            try:
+                pub_time = update_info['published_at']
+                
+                # 解析UTC时间并转换为UTC+8（北京时间）
+                if 'Z' in pub_time:
+                    # ISO格式带Z表示UTC时间
+                    utc_time = datetime.fromisoformat(pub_time.replace('Z', '+00:00'))
+                else:
+                    utc_time = datetime.fromisoformat(pub_time)
+                
+                # 转换为UTC+8（北京时间）
+                beijing_time = utc_time + timedelta(hours=8)
+                pub_date = beijing_time.strftime('%Y-%m-%d %H:%M UTC+8')
+                
+                time_label = ttk.Label(network_frame,
+                                    text=f"发布时间: {pub_date}",
+                                    font=('Consolas', 8),
+                                    foreground='gray')
+                time_label.pack(anchor=tk.W, pady=(2, 0))
+            except Exception as e:
+                self.log.debug(f"解析发布时间失败: {e}")
+        
+        # 更新内容标题
+        ttk.Label(main_frame, 
+                text="更新内容:",
+                font=('Consolas', 11, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+        
+        # 创建文本区域
+        notes_text = scrolledtext.ScrolledText(
+            main_frame,
+            wrap=tk.WORD,
+            height=12,
+            font=('Consolas', 10),
+            relief=tk.FLAT,
+            borderwidth=1,
+            background='#f9f9f9'
+        )
+        notes_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+        
+        # 插入更新内容
+        release_notes = update_info.get('release_notes', '暂无更新说明')
+        notes_text.insert(tk.END, release_notes)
+        notes_text.configure(state='disabled')
         
         # 按钮区域
         button_frame = ttk.Frame(main_frame)
