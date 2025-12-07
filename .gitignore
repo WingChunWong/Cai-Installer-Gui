@@ -8,3 +8,4 @@ frontend_gui.onefile-build
 -p/
 frontend_gui.exe
 Cai-Installer-Gui.exe
+.vscode/
