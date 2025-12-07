@@ -1,19 +1,17 @@
-from datetime import datetime, timedelta
-from pathlib import Path
-import shutil
+# frontend_gui.py
 import sys
 import os
 import logging
 import asyncio
+import threading
 import time
 import webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
-import threading
+from pathlib import Path
 from typing import List
 import subprocess
-import tempfile
-import re   
+import shutil
 
 # 版本信息
 try:
@@ -21,50 +19,21 @@ try:
 except ImportError:
     CURRENT_VERSION = "dev"
 
+# 依赖检查
 try:
     import httpx
-except ImportError:
-    messagebox.showerror("依赖缺失", "错误: httpx 库未安装。\n请在命令行中使用 'pip install httpx' 命令安装后重试。")
-    sys.exit(1)
-
-try:
     from backend_gui import GuiBackend
-except ImportError:
-    messagebox.showerror("文件缺失", "错误: backend_gui.py 文件缺失。\n请确保主程序和后端文件在同一个目录下。")
+except ImportError as e:
+    messagebox.showerror("依赖缺失", f"错误: {e}")
     sys.exit(1)
 
-# 设置Windows系统主题
+# 设置Windows DPI
 if sys.platform == 'win32':
     try:
-        from ctypes import windll, byref, sizeof, c_int
-        # 启用深色模式支持
+        from ctypes import windll
         windll.user32.SetProcessDPIAware()
     except:
         pass
-
-class ModernButton(ttk.Button):
-    """现代化按钮样式"""
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, **kwargs)
-        self.configure(style='Modern.TButton')
-
-class ModernEntry(ttk.Entry):
-    """现代化输入框"""
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, **kwargs)
-        self.configure(style='Modern.TEntry')
-
-class ModernCombobox(ttk.Combobox):
-    """现代化下拉框"""
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, **kwargs)
-        self.configure(style='Modern.TCombobox')
-
-class ModernCheckbutton(ttk.Checkbutton):
-    """现代化复选框"""
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, **kwargs)
-        self.configure(style='Modern.TCheckbutton')
 
 class SimpleNotepad(tk.Toplevel):
     def __init__(self, parent, filename, content, file_path):
@@ -73,7 +42,6 @@ class SimpleNotepad(tk.Toplevel):
         self.title(f"编辑文件 - {filename}")
         self.file_path = Path(file_path)
         
-        # 设置窗口大小和位置
         self.geometry("800x600")
         self.minsize(600, 400)
         
@@ -117,14 +85,10 @@ class SimpleNotepad(tk.Toplevel):
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, padx=20, pady=(0, 20))
         
-        # 使用系统按钮样式
-        save_button = ttk.Button(button_frame, text="保存", 
-                                command=self.save_file,
-                                style='Accent.TButton')
+        save_button = ttk.Button(button_frame, text="保存", command=self.save_file)
         save_button.pack(side=tk.RIGHT, padx=(5, 0))
         
-        close_button = ttk.Button(button_frame, text="关闭", 
-                                 command=self.destroy)
+        close_button = ttk.Button(button_frame, text="关闭", command=self.destroy)
         close_button.pack(side=tk.RIGHT)
 
     def save_file(self):
@@ -144,7 +108,6 @@ class GameSelectionDialog(tk.Toplevel):
         self.games = games
         self.result = None
         
-        # 设置窗口大小
         self.geometry("600x400")
         self.minsize(800, 500)
         
@@ -175,7 +138,6 @@ class GameSelectionDialog(tk.Toplevel):
         list_frame = ttk.Frame(main_frame)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 10))
         
-        # 创建列表和滚动条
         self.listbox_frame = ttk.Frame(list_frame)
         self.listbox_frame.pack(fill=tk.BOTH, expand=True)
         
@@ -205,13 +167,10 @@ class GameSelectionDialog(tk.Toplevel):
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, padx=20, pady=(0, 20))
         
-        ok_button = ttk.Button(button_frame, text="确定", 
-                              command=self.ok,
-                              style='')
+        ok_button = ttk.Button(button_frame, text="确定", command=self.ok)
         ok_button.pack(side=tk.RIGHT, padx=(5, 0))
         
-        cancel_button = ttk.Button(button_frame, text="取消", 
-                                  command=self.destroy)
+        cancel_button = ttk.Button(button_frame, text="取消", command=self.destroy)
         cancel_button.pack(side=tk.RIGHT)
     
     def ok(self, event=None):
@@ -232,21 +191,19 @@ class UpdateManager:
         self.root = gui_app.root
         
     async def download_update(self, download_url: str, progress_callback=None) -> str:
-        """下载更新文件到程序目录的上一级"""
+        """下载更新文件"""
         try:
             # 获取应用程序目录
             if getattr(sys, 'frozen', False):
-                # 打包后的exe
                 exe_dir = Path(sys.executable).parent
                 current_exe = Path(sys.executable)
             else:
-                # 源码运行
                 exe_dir = Path(__file__).parent
                 current_exe = exe_dir / "frontend_gui.py"
             
             self.log.info(f"当前程序位置: {current_exe}")
             
-            # 在程序目录的上一级创建更新目录，避免权限问题
+            # 创建更新目录
             update_dir = exe_dir.parent / "Cai-Installer-GUI-Updates"
             update_dir.mkdir(exist_ok=True)
             
@@ -257,28 +214,25 @@ class UpdateManager:
             
             self.log.info(f"更新文件将保存到: {update_path}")
             
-            # 创建临时文件用于下载 - 修复临时文件名
+            # 创建临时文件
             temp_suffix = ".tmp"
             temp_path = update_dir / f"{update_exe_name}{temp_suffix}"
             
-            # 如果临时文件已存在，先删除
             if temp_path.exists():
                 temp_path.unlink()
             
             # 下载更新
-            self.log.info(f"开始下载更新文件...")
+            self.log.info("开始下载更新文件...")
             
             # 根据地区选择下载源
             if os.environ.get('IS_CN') == 'yes':
                 self.log.info("检测到中国大陆地区，使用镜像下载")
-                # 尝试镜像下载
                 mirror_url = self.backend.convert_github_to_mirror(download_url)
                 if mirror_url:
                     success = await self.download_update_direct(
                         mirror_url, str(temp_path), progress_callback
                     )
                     if success and temp_path.exists():
-                        # 重命名临时文件为最终文件名
                         self.rename_temp_to_final(temp_path, update_path)
                         return str(update_path)
             
@@ -289,7 +243,6 @@ class UpdateManager:
             )
             
             if success and temp_path.exists():
-                # 重命名临时文件为最终文件名
                 self.rename_temp_to_final(temp_path, update_path)
                 return str(update_path)
             
@@ -297,26 +250,17 @@ class UpdateManager:
             
         except Exception as e:
             self.log.error(f"下载更新失败: {str(e)}")
-            # 清理可能的临时文件
-            try:
-                if 'temp_path' in locals() and temp_path.exists():
-                    temp_path.unlink()
-            except:
-                pass
             return ""
     
     def rename_temp_to_final(self, temp_path: Path, final_path: Path):
-        """重命名临时文件为最终文件名"""
+        """重命名临时文件"""
         try:
-            # 如果目标文件已存在，先删除
             if final_path.exists():
                 final_path.unlink()
             
-            # 重命名文件
             temp_path.rename(final_path)
             self.log.info(f"已重命名临时文件: {temp_path.name} -> {final_path.name}")
             
-            # 验证文件存在
             if final_path.exists():
                 file_size = final_path.stat().st_size
                 self.log.info(f"更新文件下载成功: {final_path.name} ({file_size} 字节)")
@@ -325,18 +269,16 @@ class UpdateManager:
                 
         except Exception as e:
             self.log.error(f"重命名文件失败: {e}")
-            # 尝试复制方式
             try:
                 shutil.copy2(temp_path, final_path)
                 self.log.info(f"已通过复制方式保存文件: {final_path.name}")
-                # 删除临时文件
                 temp_path.unlink()
             except Exception as e2:
                 self.log.error(f"复制文件失败: {e2}")
                 raise
     
     async def download_update_direct(self, url: str, dest_path: str, progress_callback=None) -> bool:
-        """直接下载更新文件（带进度回调）- 修复进度回调参数"""
+        """直接下载更新文件"""
         try:
             self.log.info(f"下载更新: {url}")
             
@@ -363,27 +305,13 @@ class UpdateManager:
                             f.write(chunk)
                             downloaded_size += len(chunk)
                             
-                            # 更新进度 - 修复：progress_callback可能期望不同的参数格式
+                            # 更新进度
                             if progress_callback and total_size > 0:
-                                # 尝试不同的回调格式
-                                try:
-                                    # 第一种格式：单个进度值 (0-100)
-                                    percent = (downloaded_size / total_size) * 100
-                                    progress_callback(percent)
-                                except TypeError:
-                                    try:
-                                        # 第二种格式：当前大小和总大小
-                                        progress_callback(downloaded_size, total_size)
-                                    except TypeError:
-                                        # 第三种格式：自定义格式
-                                        progress_callback(
-                                            downloaded_size, total_size, 
-                                            downloaded_size / total_size
-                                        )
+                                percent = (downloaded_size / total_size) * 100
+                                progress_callback(percent)
                     
                     self.log.info(f"下载完成: {dest_path} ({downloaded_size} 字节)")
                     
-                    # 验证文件大小
                     if total_size > 0 and downloaded_size != total_size:
                         self.log.warning(f"下载大小不匹配: 期望 {total_size}, 实际 {downloaded_size}")
                     
@@ -391,232 +319,24 @@ class UpdateManager:
                     
         except httpx.HTTPStatusError as e:
             self.log.error(f"HTTP错误: {e.response.status_code}")
-            # 清理不完整的文件
-            try:
-                if os.path.exists(dest_path):
-                    os.remove(dest_path)
-            except:
-                pass
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
             return False
         except Exception as e:
             self.log.error(f"下载失败: {str(e)}")
-            # 清理不完整的文件
-            try:
-                if os.path.exists(dest_path):
-                    os.remove(dest_path)
-            except:
-                pass
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
             return False
-    
-    def create_update_script(self, current_exe_path: str, new_exe_path: str) -> str:
-        """创建更新脚本（批处理文件）用于覆盖旧版本"""
-        try:
-            # 获取脚本保存目录
-            if getattr(sys, 'frozen', False):
-                exe_dir = Path(sys.executable).parent
-            else:
-                exe_dir = Path(__file__).parent
-            
-            script_dir = exe_dir.parent / "Cai-Installer-GUI-Updates"
-            script_dir.mkdir(exist_ok=True)
-            
-            # 生成脚本文件名
-            timestamp = int(time.time())
-            script_name = f"update_script_{timestamp}.bat"
-            script_path = script_dir / script_name
-            
-            # 确保路径使用双引号包裹，处理空格
-            current_exe_quoted = f'"{current_exe_path}"'
-            new_exe_quoted = f'"{new_exe_path}"'
-            script_dir_quoted = f'"{script_dir}"'
-            
-            # 创建批处理脚本
-            bat_content = f"""@echo off
-chcp 65001 >nul
-echo 正在更新 Cai Install GUI...
-echo 请稍候，这可能需要几秒钟时间...
-
-:: 等待当前程序退出
-timeout /t 3 /nobreak >nul
-
-:: 检查新版本文件是否存在
-if not exist {new_exe_quoted} (
-    echo 错误: 更新文件不存在!
-    echo {new_exe_quoted}
-    pause
-    exit /b 1
-)
-
-:: 检查当前程序文件是否存在
-if not exist {current_exe_quoted} (
-    echo 错误: 当前程序文件不存在!
-    echo {current_exe_quoted}
-    pause
-    exit /b 1
-)
-
-echo 正在复制新版本...
-set retry_count=0
-:retry_copy
-copy /Y {new_exe_quoted} {current_exe_quoted} >nul 2>&1
-if %errorlevel% neq 0 (
-    set /a retry_count=retry_count+1
-    if %retry_count% lss 5 (
-        echo 复制失败，正在重试 (尝试 %retry_count%/5)...
-        timeout /t 1 /nobreak >nul
-        goto retry_copy
-    )
-)
-
-:: 检查是否复制成功
-if exist {current_exe_quoted} (
-    echo 更新成功！正在启动新版本...
-    
-    :: 延迟确保文件写入完成
-    timeout /t 1 /nobreak >nul
-    
-    :: 删除临时文件
-    if exist {new_exe_quoted} (
-        echo 清理更新文件...
-        del {new_exe_quoted}
-    )
-    
-    :: 删除当前脚本
-    if exist "{script_path}" (
-        echo 清理更新脚本...
-        del "{script_path}"
-    )
-    
-    :: 启动新版本
-    echo 正在启动新版本...
-    start "" {current_exe_quoted}
-    
-    :: 清理旧的更新文件（保留最近3天）
-    echo 清理旧更新文件...
-    forfiles /p {script_dir_quoted} /m "Cai-Installer-GUI-Update-*.exe" /d -3 /c "cmd /c echo 删除 @file & del @path" >nul
-    forfiles /p {script_dir_quoted} /m "update_script_*.bat" /d -3 /c "cmd /c echo 删除 @file & del @path" >nul
-    
-    echo 更新完成！
-) else (
-    echo 更新失败！
-    echo 请手动复制文件:
-    echo 从: {new_exe_quoted}
-    echo 到: {current_exe_quoted}
-    pause
-)
-
-exit
-"""
-            with open(script_path, 'w', encoding='utf-8') as f:
-                f.write(bat_content)
-            
-            self.log.info(f"创建更新脚本: {script_path}")
-            return str(script_path)
-            
-        except Exception as e:
-            self.log.error(f"创建更新脚本失败: {str(e)}")
-            return ""
-    
-    def launch_updater(self, update_exe_path: str):
-        """启动更新程序并覆盖旧版本"""
-        try:
-            if not update_exe_path or not os.path.exists(update_exe_path):
-                self.log.error("更新文件不存在")
-                return False
-            
-            # 获取当前程序路径
-            if getattr(sys, 'frozen', False):
-                current_exe = sys.executable
-            else:
-                # 对于源码运行，我们假设用户会打包成exe
-                current_exe = Path(__file__).parent / "Cai-Installer-GUI.exe"
-                if not current_exe.exists():
-                    # 如果没有打包的exe，使用当前脚本
-                    current_exe = sys.executable
-            
-            self.log.info(f"当前程序: {current_exe}")
-            self.log.info(f"新版本文件: {update_exe_path}")
-            
-            # 创建更新脚本
-            update_script = self.create_update_script(str(current_exe), update_exe_path)
-            
-            if not update_script or not os.path.exists(update_script):
-                self.log.error("无法创建更新脚本")
-                # 直接尝试启动更新程序
-                messagebox.showinfo("准备更新", 
-                    "更新文件已下载完成，请手动替换旧版本。")
-                return False
-            
-            # 显示提示
-            messagebox.showinfo("准备更新", 
-                "更新文件已下载完成，即将覆盖安装新版本。应用程序将关闭并重启。")
-            
-            # 启动更新脚本
-            subprocess.Popen([update_script], shell=True)
-            
-            # 延迟退出，让更新脚本有足够时间启动
-            self.root.after(1000, self.gui.on_closing)
-            return True
-            
-        except Exception as e:
-            self.log.error(f"启动更新程序失败: {str(e)}")
-            # 尝试直接打开更新文件
-            try:
-                messagebox.showinfo("手动更新", 
-                    f"自动更新失败，请手动运行更新程序:\n{update_exe_path}")
-                os.startfile(update_exe_path)
-                self.gui.on_closing()
-            except Exception as e2:
-                self.log.error(f"无法启动更新程序: {str(e2)}")
-            return False
-    
-    def cleanup_old_updates(self):
-        """清理旧的更新文件"""
-        try:
-            if getattr(sys, 'frozen', False):
-                exe_dir = Path(sys.executable).parent
-            else:
-                exe_dir = Path(__file__).parent
-            
-            update_dir = exe_dir.parent / "Cai-Installer-GUI-Updates"
-            if not update_dir.exists():
-                return
-            
-            # 保留最近3个更新文件，删除旧的
-            update_files = list(update_dir.glob("Cai-Installer-GUI-Update-*.exe"))
-            update_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-            
-            for old_file in update_files[3:]:
-                try:
-                    old_file.unlink()
-                    self.log.debug(f"已清理旧更新文件: {old_file.name}")
-                except Exception as e:
-                    self.log.debug(f"清理旧更新文件失败: {old_file.name} - {e}")
-            
-            # 清理旧的更新脚本
-            script_files = list(update_dir.glob("update_script_*.bat"))
-            script_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-            
-            for old_script in script_files[3:]:
-                try:
-                    old_script.unlink()
-                    self.log.debug(f"已清理旧更新脚本: {old_script.name}")
-                except Exception as e:
-                    self.log.debug(f"清理旧更新脚本失败: {old_script.name} - {e}")
-                    
-        except Exception as e:
-            self.log.debug(f"清理旧更新文件时出错: {e}")
 
 class CaiInstallGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(f"Cai Install GUI v{CURRENT_VERSION}")
         
-        # 设置窗口初始大小和位置
         self.root.geometry("1200x800")
         self.root.minsize(900, 600)
         
-        # 设置窗口图标（如果有）
+        # 设置窗口图标
         try:
             icon_path = Path(__file__).parent / "icon.ico"
             if icon_path.exists():
@@ -624,12 +344,8 @@ class CaiInstallGUI:
         except:
             pass
         
-        # 设置协议
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.processing_lock = threading.Lock()
-        
-        # 设置样式
-        self.setup_styles()
         
         # 创建控件
         self.create_widgets()
@@ -652,57 +368,10 @@ class CaiInstallGUI:
         # 延迟初始化
         self.root.after(100, self.initialize_app)
         
-        # 更新检查状态
-        self.update_check_done = False
-        
         self.update_manager = UpdateManager(self)
         
         # 启动时后台检查更新
         threading.Thread(target=self.background_check_update, daemon=True).start()
-
-    def setup_styles(self):
-        """设置现代化样式"""
-        style = ttk.Style()
-        
-        # 尝试使用系统主题
-        available_themes = style.theme_names()
-        if 'vista' in available_themes:
-            style.theme_use('vista')
-        elif 'winnative' in available_themes:
-            style.theme_use('winnative')
-        
-        # 配置现代化按钮样式
-        style.configure('Modern.TButton',
-                       padding=8,
-                       relief='flat',
-                       font=('Consolas', 10))
-        
-        style.configure('Accent.TButton',
-                       padding=8,
-                       relief='flat',
-                       font=('Consolas', 10, 'bold'))
-        
-        # 配置输入框样式
-        style.configure('Modern.TEntry',
-                       padding=5,
-                       relief='flat',
-                       font=('Consolas', 10))
-        
-        # 配置下拉框样式
-        style.configure('Modern.TCombobox',
-                       padding=5,
-                       font=('Consolas', 10))
-        
-        # 配置复选框样式
-        style.configure('Modern.TCheckbutton',
-                       font=('Consolas', 10))
-        
-        # 配置标签样式
-        style.configure('Header.TLabel',
-                       font=('Consolas', 12, 'bold'))
-        
-        style.configure('Subheader.TLabel',
-                       font=('Consolas', 10, 'bold'))
 
     def setup_logging(self):
         """设置日志系统"""
@@ -765,8 +434,6 @@ class CaiInstallGUI:
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="帮助", menu=help_menu)
         help_menu.add_command(label="项目主页", command=lambda: webbrowser.open('https://github.com/WingChunWong/Cai-Installer-GUI'))
-        help_menu.add_command(label="禁止倒卖", command=lambda: webbrowser.open('https://docs.qq.com/doc/DTUp3Z2Fkd2pVRGtX?dver='))
-        help_menu.add_separator()
         help_menu.add_command(label="检查更新", command=self.check_for_updates)
         help_menu.add_command(label="关于", command=self.show_about_dialog)
 
@@ -802,7 +469,7 @@ class CaiInstallGUI:
         
         title_label = ttk.Label(header_frame, 
                                text=f"Cai Install GUI v{CURRENT_VERSION}",
-                               style='Header.TLabel')
+                               font=('Consolas', 12, 'bold'))
         title_label.pack(anchor=tk.W)
         
         # 搜索区域
@@ -814,10 +481,10 @@ class CaiInstallGUI:
         
         ttk.Label(search_container, text="AppID或游戏名称:").pack(side=tk.LEFT, padx=(0, 10))
         
-        self.appid_entry = ModernEntry(search_container, width=40)
+        self.appid_entry = ttk.Entry(search_container, width=40)
         self.appid_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         
-        self.search_button = ModernButton(search_container, 
+        self.search_button = ttk.Button(search_container, 
                                          text="搜索",
                                          command=self.start_game_search,
                                          width=10)
@@ -851,7 +518,7 @@ class CaiInstallGUI:
             ("GitHub - SteamAutoCracks/ManifestHub", "SteamAutoCracks/ManifestHub"),
         ]
         
-        self.repo_combobox = ModernCombobox(repo_container, state="readonly", width=40)
+        self.repo_combobox = ttk.Combobox(repo_container, state="readonly", width=40)
         self.repo_combobox['values'] = [name for name, _ in self.repo_options]
         self.repo_combobox.current(0)
         self.repo_combobox.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -869,10 +536,9 @@ class CaiInstallGUI:
         button_frame = ttk.Frame(parent)
         button_frame.pack(fill=tk.X, padx=20, pady=(0, 15))
         
-        self.process_button = ModernButton(button_frame,
+        self.process_button = ttk.Button(button_frame,
                                           text="开始处理",
-                                          command=self.start_processing,
-                                          style='Accent.TButton')
+                                          command=self.start_processing)
         self.process_button.pack(side=tk.LEFT, padx=(0, 10))
         
         # 日志区域
@@ -883,10 +549,10 @@ class CaiInstallGUI:
         log_toolbar = ttk.Frame(log_frame)
         log_toolbar.pack(fill=tk.X, pady=(0, 10))
         
-        clear_btn = ModernButton(log_toolbar, text="清空日志", command=self.clear_log)
+        clear_btn = ttk.Button(log_toolbar, text="清空日志", command=self.clear_log)
         clear_btn.pack(side=tk.LEFT, padx=(0, 5))
         
-        copy_btn = ModernButton(log_toolbar, text="复制日志", command=self.copy_log)
+        copy_btn = ttk.Button(log_toolbar, text="复制日志", command=self.copy_log)
         copy_btn.pack(side=tk.LEFT)
         
         # 日志文本框
@@ -910,14 +576,14 @@ class CaiInstallGUI:
         toolbar.pack(fill=tk.X, pady=(0, 10))
         
         buttons = [
-            ("刷新", self.refresh_file_list, ''),
-            ("查看", self.view_selected_file, ''),
-            ("删除", self.delete_selected_file, ''),
-            ("重启Steam", self.restart_steam,'')
+            ("刷新", self.refresh_file_list),
+            ("查看", self.view_selected_file),
+            ("删除", self.delete_selected_file),
+            ("重启Steam", self.restart_steam)
         ]
         
-        for i, (text, command, style) in enumerate(buttons):
-            btn = ttk.Button(toolbar, text=text, command=command, style=style, width=10)
+        for i, (text, command) in enumerate(buttons):
+            btn = ttk.Button(toolbar, text=text, command=command, width=10)
             btn.grid(row=0, column=i, padx=(0, 5) if i < 3 else 0)
         
         # 文件列表
@@ -953,7 +619,6 @@ class CaiInstallGUI:
         version_label = ttk.Label(self.status_bar, text=f"版本: {CURRENT_VERSION}", relief=tk.FLAT)
         version_label.pack(side=tk.RIGHT, padx=10, pady=3)
 
-    # 以下方法保持原有功能，但使用新的控件样式
     def clear_log(self):
         self.log_text_widget.configure(state='normal')
         self.log_text_widget.delete(1.0, tk.END)
@@ -1064,7 +729,6 @@ class CaiInstallGUI:
         self.log.info("本项目采用GNU GPLv3开源许可证，完全免费，请勿用于商业用途。")
 
     def print_banner(self):
-        """保留原有的艺术字"""
         banner = [
             r"   ____           _     ___                 _             _   _               ",
             r"  / ___|   __ _  (_)   |_ _|  _ __    ___  | |_    __ _  | | | |   ___   _ __ ",
@@ -1247,7 +911,6 @@ class CaiInstallGUI:
         dialog.title("编辑配置")
         dialog.transient(self.root)
         
-        # 设置窗口大小和位置
         dialog.geometry("500x350")
         dialog.minsize(800, 400)
         
@@ -1267,24 +930,24 @@ class CaiInstallGUI:
         
         # GitHub Token
         ttk.Label(main_frame, text="GitHub Personal Token:", 
-                 style='Subheader.TLabel').grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
+                 font=('Consolas', 10, 'bold')).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
         
-        token_entry = ModernEntry(main_frame, width=40)
+        token_entry = ttk.Entry(main_frame, width=40)
         token_entry.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(0, 15))
         token_entry.insert(0, self.backend.app_config.get("Github_Personal_Token", ""))
         
         # Steam路径
         ttk.Label(main_frame, text="自定义Steam路径:", 
-                 style='Subheader.TLabel').grid(row=2, column=0, sticky=tk.W, pady=(0, 5))
+                 font=('Consolas', 10, 'bold')).grid(row=2, column=0, sticky=tk.W, pady=(0, 5))
         
         path_frame = ttk.Frame(main_frame)
         path_frame.grid(row=3, column=0, columnspan=2, sticky=tk.EW, pady=(0, 15))
         
-        path_entry = ModernEntry(path_frame)
+        path_entry = ttk.Entry(path_frame)
         path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         path_entry.insert(0, self.backend.app_config.get("Custom_Steam_Path", ""))
         
-        browse_btn = ModernButton(path_frame, text="浏览...", width=8,
+        browse_btn = ttk.Button(path_frame, text="浏览...", width=8,
                                  command=lambda: self.browse_steam_path(path_entry))
         browse_btn.pack(side=tk.RIGHT)
         
@@ -1293,13 +956,13 @@ class CaiInstallGUI:
         options_frame.grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(0, 20))
         
         st_lua_only_var = tk.BooleanVar(value=self.backend.app_config.get("steamtools_only_lua", False))
-        st_lua_only_check = ModernCheckbutton(options_frame, 
+        st_lua_only_check = ttk.Checkbutton(options_frame, 
                                              text="使用SteamTools自动更新模式",
                                              variable=st_lua_only_var)
         st_lua_only_check.pack(anchor=tk.W)
         
         auto_restart_var = tk.BooleanVar(value=self.backend.app_config.get("auto_restart_steam", True))
-        auto_restart_check = ModernCheckbutton(options_frame, 
+        auto_restart_check = ttk.Checkbutton(options_frame, 
                                               text="入库后自动重启Steam",
                                               variable=auto_restart_var)
         auto_restart_check.pack(anchor=tk.W, pady=(5, 0))
@@ -1319,18 +982,11 @@ class CaiInstallGUI:
                 self.log.info("已启用 [SteamTools自动更新] 模式。")
             dialog.destroy()
         
-        save_btn = ModernButton(button_frame, text="保存", 
-                               command=save_and_close,
-                               style='Accent.TButton')
+        save_btn = ttk.Button(button_frame, text="保存", command=save_and_close)
         save_btn.pack(side=tk.RIGHT, padx=(10, 0))
         
-        cancel_btn = ModernButton(button_frame, text="取消", 
-                                 command=dialog.destroy)
+        cancel_btn = ttk.Button(button_frame, text="取消", command=dialog.destroy)
         cancel_btn.pack(side=tk.RIGHT)
-        
-        # 配置网格权重
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=0)
 
     def browse_steam_path(self, entry_widget):
         """浏览Steam安装路径"""
@@ -1382,7 +1038,6 @@ class CaiInstallGUI:
             except Exception:
                 pass
             
-            import time
             time.sleep(3)
             
             subprocess.Popen([str(steam_exe)], shell=True)
@@ -1426,7 +1081,6 @@ class CaiInstallGUI:
         result = await self.backend.check_for_updates(CURRENT_VERSION)
         
         self.root.after(0, lambda: self.status_label.config(text="就绪"))
-        self.update_check_done = True
         
         if result.get('has_update'):
             self.root.after(0, lambda: self.show_update_dialog(result))
@@ -1439,7 +1093,6 @@ class CaiInstallGUI:
         dialog.title("发现新版本")
         dialog.transient(self.root)
         
-        # 设置窗口大小
         dialog.geometry("650x600")
         dialog.minsize(1000, 700)
         
@@ -1477,287 +1130,23 @@ class CaiInstallGUI:
                                 font=('Consolas', 11, 'bold'))
         latest_label.pack(anchor=tk.W, pady=(2, 0))
         
-        # 网络和地区信息
-        network_frame = ttk.Frame(version_frame)
-        network_frame.pack(anchor=tk.W, pady=(5, 0))
-        
-        # 获取地区信息
-        region = "未知"
-        if hasattr(self.backend, 'last_detected_region'):
-            region = self.backend.last_detected_region
-        
-        # 格式化地区显示
-        if region == 'cn':
-            region_display = "中国大陆"
-        elif region.startswith('not_cn_'):
-            region_display = region.replace('not_cn_', '')
-        else:
-            region_display = region
-        
-        # 根据地区决定使用的源
-        if os.environ.get('IS_CN') == 'yes':
-            network_text = f"检测地区: {region_display}，使用镜像源"
-            network_color = 'green'
-        else:
-            network_text = f"检测地区: {region_display}，使用GitHub源"
-            network_color = 'blue'
-        
-        network_label = ttk.Label(network_frame,
-                                text=network_text,
-                                font=('Consolas', 9),
-                                foreground=network_color)
-        network_label.pack(anchor=tk.W)
-        
-        # 更新时间 (UTC+8)
-        if update_info.get('published_at'):
-            try:
-                pub_time = update_info['published_at']
-                
-                # 解析UTC时间并转换为UTC+8（北京时间）
-                if 'Z' in pub_time:
-                    # ISO格式带Z表示UTC时间
-                    utc_time = datetime.fromisoformat(pub_time.replace('Z', '+00:00'))
-                else:
-                    utc_time = datetime.fromisoformat(pub_time)
-                
-                # 转换为UTC+8（北京时间）
-                beijing_time = utc_time + timedelta(hours=8)
-                pub_date = beijing_time.strftime('%Y-%m-%d %H:%M UTC+8')
-                
-                time_label = ttk.Label(network_frame,
-                                    text=f"发布时间: {pub_date}",
-                                    font=('Consolas', 8),
-                                    foreground='gray')
-                time_label.pack(anchor=tk.W, pady=(2, 0))
-            except Exception as e:
-                self.log.debug(f"解析发布时间失败: {e}")
-        
-        # 更新内容标题
-        ttk.Label(main_frame, 
-                text="更新内容:",
-                font=('Consolas', 11, 'bold')).pack(anchor=tk.W, pady=(0, 5))
-        
-        # 创建文本区域，并配置Markdown样式
-        notes_text = scrolledtext.ScrolledText(
-            main_frame,
-            wrap=tk.WORD,
-            height=12,
-            font=('Consolas', 10),
-            relief=tk.FLAT,
-            borderwidth=1,
-            background='#f9f9f9'
-        )
-        notes_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
-        
-        # 配置Markdown样式标签
-        self._setup_markdown_tags(notes_text)
-        
-        # 插入Markdown内容
-        release_notes = update_info.get('release_notes', '暂无更新说明')
-        self._insert_markdown_content(notes_text, release_notes)
-        
-        notes_text.configure(state='disabled')
-        
         # 按钮区域
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X)
         
-        cancel_btn = ModernButton(button_frame, text="稍后提醒", command=dialog.destroy)
+        cancel_btn = ttk.Button(button_frame, text="稍后提醒", command=dialog.destroy)
         cancel_btn.pack(side=tk.RIGHT, padx=(5, 0))
         
-        details_btn = ModernButton(button_frame, text="查看详情", 
+        details_btn = ttk.Button(button_frame, text="查看详情", 
                                 command=lambda: webbrowser.open(update_info['release_url']))
         details_btn.pack(side=tk.RIGHT, padx=5)
         
-        update_btn = ModernButton(button_frame, text="立即更新", 
-                                command=lambda: self.start_update(dialog, update_info['download_url']),
-                                style='Accent.TButton')
+        update_btn = ttk.Button(button_frame, text="立即更新", 
+                                command=lambda: self.start_update(dialog, update_info['download_url']))
         update_btn.pack(side=tk.RIGHT)
 
-    def _setup_markdown_tags(self, text_widget):
-        """配置Markdown标签样式"""
-        # 标题样式
-        text_widget.tag_configure('h1', font=('Consolas', 14, 'bold'), foreground='#2c3e50', spacing3=10)
-        text_widget.tag_configure('h2', font=('Consolas', 12, 'bold'), foreground='#34495e', spacing3=8)
-        text_widget.tag_configure('h3', font=('Consolas', 11, 'bold'), foreground='#7f8c8d', spacing3=6)
-        
-        # 文本样式
-        text_widget.tag_configure('bold', font=('Consolas', 10, 'bold'))
-        text_widget.tag_configure('italic', font=('Consolas', 10, 'italic'))
-        text_widget.tag_configure('bold_italic', font=('Consolas', 10, 'bold italic'))
-        
-        # 内联代码 - 使用背景色和边距模拟效果，但移除不支持的padding
-        text_widget.tag_configure('code', font=('Consolas', 9), background='#e8e8e8',
-                                borderwidth=1, relief='solid')
-        
-        # 代码块 - 移除不支持的padding，使用边距和背景
-        text_widget.tag_configure('code_block', font=('Consolas', 9), background='#f5f5f5',
-                                lmargin1=20, lmargin2=20, rmargin=20,
-                                borderwidth=1, relief='solid', spacing1=5, spacing3=5)
-        
-        # 链接样式
-        text_widget.tag_configure('link', font=('Consolas', 10, 'underline'), foreground='#3498db')
-        
-        # 列表样式
-        text_widget.tag_configure('bullet', lmargin1=20, lmargin2=40)
-        text_widget.tag_configure('numbered', lmargin1=20, lmargin2=40)
-        
-        # 引用样式 - 移除padding，使用边距
-        text_widget.tag_configure('blockquote', font=('Consolas', 10, 'italic'), 
-                                foreground='#7f8c8d', lmargin1=30, lmargin2=50,
-                                borderwidth=0, selectbackground='#f0f0f0')
-
-    def _insert_markdown_content(self, text_widget, markdown_text):
-        """插入并渲染Markdown内容"""
-        if not markdown_text:
-            text_widget.insert(tk.END, "暂无更新说明")
-            return
-        
-        lines = markdown_text.split('\n')
-        in_code_block = False
-        code_block_content = []
-        list_level = 0
-        numbered_list_counter = 1
-        
-        for i, line in enumerate(lines):
-            line_stripped = line.strip()
-            
-            # 处理代码块
-            if line_stripped.startswith('```'):
-                if not in_code_block:
-                    # 开始代码块
-                    in_code_block = True
-                    code_block_content = []
-                    # 添加空行
-                    if i > 0:
-                        text_widget.insert(tk.END, '\n')
-                else:
-                    # 结束代码块
-                    in_code_block = False
-                    if code_block_content:
-                        # 插入代码块内容
-                        text_widget.insert(tk.END, '\n'.join(code_block_content) + '\n', 'code_block')
-                    continue
-            
-            if in_code_block:
-                code_block_content.append(line)
-                continue
-            
-            # 处理空行
-            if not line_stripped:
-                text_widget.insert(tk.END, '\n')
-                list_level = 0
-                numbered_list_counter = 1
-                continue
-            
-            # 处理标题
-            if line_stripped.startswith('#'):
-                heading_level = 0
-                while heading_level < len(line) and line[heading_level] == '#':
-                    heading_level += 1
-                
-                heading_text = line[heading_level:].strip()
-                if heading_level <= 3:
-                    tag = f'h{heading_level}'
-                    if i > 0:
-                        text_widget.insert(tk.END, '\n')
-                    text_widget.insert(tk.END, heading_text + '\n', tag)
-                else:
-                    # 四级及以下标题当作普通文本
-                    text_widget.insert(tk.END, heading_text + '\n')
-                continue
-            
-            # 处理引用
-            if line_stripped.startswith('>'):
-                quote_text = line[1:].strip()
-                text_widget.insert(tk.END, quote_text + '\n', 'blockquote')
-                continue
-            
-            # 处理列表
-            if line_stripped.startswith('- ') or line_stripped.startswith('* '):
-                bullet_text = line_stripped[2:]
-                text_widget.insert(tk.END, '• ' + bullet_text + '\n', 'bullet')
-                list_level = 1
-                continue
-            
-            if re.match(r'^\d+\.\s+', line_stripped):
-                # 移除数字前缀
-                match = re.match(r'^(\d+)\.\s+(.*)', line_stripped)
-                if match:
-                    item_text = match.group(2)
-                    text_widget.insert(tk.END, f'{numbered_list_counter}. {item_text}\n', 'numbered')
-                    numbered_list_counter += 1
-                    list_level = 1
-                continue
-            
-            # 处理普通段落（应用内联样式）
-            self._insert_inline_styled_text(text_widget, line, list_level > 0)
-            text_widget.insert(tk.END, '\n')
-        
-        # 确保末尾有空行
-        text_widget.insert(tk.END, '\n')
-
-    def _insert_inline_styled_text(self, text_widget, text, in_list=False):
-        """插入带内联样式的文本"""
-        # 处理内联代码、粗体、斜体、链接等
-        patterns = [
-            (r'`([^`]+)`', 'code'),  # 内联代码
-            (r'\*\*\*([^*]+)\*\*\*', 'bold_italic'),  # 粗斜体
-            (r'\*\*([^*]+)\*\*', 'bold'),  # 粗体
-            (r'\*([^*]+)\*', 'italic'),  # 斜体
-            (r'!\[([^\]]+)\]\(([^)]+)\)', 'image'),  # 图片（暂不处理）
-            (r'\[([^\]]+)\]\(([^)]+)\)', 'link'),  # 链接
-        ]
-        
-        # 如果需要列表缩进
-        if in_list:
-            text_widget.insert(tk.END, '  ')
-        
-        # 解析并应用样式
-        last_pos = 0
-        i = 0
-        
-        while i < len(text):
-            matched = False
-            
-            for pattern, tag in patterns:
-                regex = re.compile(pattern)
-                match = regex.match(text, i)
-                
-                if match:
-                    # 插入之前的普通文本
-                    if i > last_pos:
-                        plain_text = text[last_pos:i]
-                        text_widget.insert(tk.END, plain_text)
-                    
-                    # 插入带样式的文本
-                    if tag == 'link':
-                        link_text = match.group(1)
-                        link_url = match.group(2)
-                        text_widget.insert(tk.END, link_text, tag)
-                        # 这里可以添加点击事件，但需要更复杂的处理
-                    elif tag == 'image':
-                        # 跳过图片
-                        pass
-                    else:
-                        styled_text = match.group(1)
-                        text_widget.insert(tk.END, styled_text, tag)
-                    
-                    last_pos = i + len(match.group(0))
-                    i = last_pos
-                    matched = True
-                    break
-            
-            if not matched:
-                i += 1
-        
-        # 插入剩余的普通文本
-        if last_pos < len(text):
-            plain_text = text[last_pos:]
-            text_widget.insert(tk.END, plain_text)
-
     def start_update(self, dialog, download_url):
-        """开始更新过程 - 使用更新管理器"""
+        """开始更新过程"""
         dialog.destroy()
         
         if not download_url:
@@ -1811,30 +1200,19 @@ class CaiInstallGUI:
         progress_text = ttk.Label(main_frame, text="准备下载...")
         progress_text.pack()
         
-        # 进度回调函数 - 修改为接受2个参数
-        def update_progress(current, total):
-            if total > 0:
-                percent = (current / total) * 100
-                progress_var.set(percent)
-                current_mb = current / 1024 / 1024
-                total_mb = total / 1024 / 1024
-                progress_text.config(
-                    text=f"{current_mb:.1f} MB / {total_mb:.1f} MB ({percent:.1f}%)"
-                )
-                progress_dialog.update()
-        
-        # 清理旧的更新文件
-        self.update_manager.cleanup_old_updates()
+        # 进度回调函数
+        def update_progress(percent):
+            progress_var.set(percent)
+            progress_text.config(text=f"下载进度: {percent:.1f}%")
+            progress_dialog.update()
         
         # 在新线程中执行下载
         def download_and_update():
             try:
-                # 在单独的线程中运行异步任务
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 
                 try:
-                    # 更新状态
                     self.root.after(0, lambda: status_label.config(
                         text=f"开始下载更新文件 ({network_status})...\n请稍候..."
                     ))
@@ -1845,7 +1223,6 @@ class CaiInstallGUI:
                     )
                     
                     if update_exe_path and os.path.exists(update_exe_path):
-                        # 更新文件路径显示
                         self.root.after(0, lambda: self.update_path_label.config(
                             text=f"文件位置: {os.path.basename(update_exe_path)}"
                         ))
@@ -1856,21 +1233,18 @@ class CaiInstallGUI:
                         ))
                         self.root.after(0, lambda: progress_text.config(text="下载完成！准备覆盖..."))
                         
-                        # 延迟显示，让用户看到完成状态
                         time.sleep(1)
                         
-                        # 关闭进度对话框并启动更新
                         self.root.after(0, progress_dialog.destroy)
                         
-                        # 启动更新程序进行覆盖安装
-                        self.root.after(0, lambda: self.update_manager.launch_updater(update_exe_path))
+                        # 显示提示并退出
+                        messagebox.showinfo("更新完成", "更新文件已下载完成，请手动替换旧版本。")
+                        
                     else:
                         self.log.error("更新文件下载失败")
                         self.root.after(0, lambda: messagebox.showerror(
                             "更新失败", 
-                            "无法下载更新文件，请稍后重试或手动下载。\n"
-                            "您也可以前往项目主页手动下载最新版本：\n"
-                            "https://github.com/WingChunWong/Cai-Installer-GUI/releases",
+                            "无法下载更新文件，请稍后重试或手动下载。",
                             parent=self.root
                         ))
                         self.root.after(0, progress_dialog.destroy)
@@ -1879,8 +1253,7 @@ class CaiInstallGUI:
                     self.log.error(f"更新下载过程中出现异常: {str(e)}")
                     self.root.after(0, lambda: messagebox.showerror(
                         "更新异常", 
-                        f"更新过程中出现异常:\n{str(e)}\n"
-                        "请尝试手动下载更新。",
+                        f"更新过程中出现异常:\n{str(e)}\n请尝试手动下载更新。",
                         parent=self.root
                     ))
                     self.root.after(0, progress_dialog.destroy)
@@ -1891,8 +1264,7 @@ class CaiInstallGUI:
                 self.log.error(f"更新过程出错: {str(e)}")
                 self.root.after(0, lambda: messagebox.showerror(
                     "更新失败", 
-                    f"更新过程中发生错误:\n{str(e)}\n"
-                    "请手动下载更新：https://github.com/WingChunWong/Cai-Installer-GUI/releases",
+                    f"更新过程中发生错误:\n{str(e)}\n请手动下载更新",
                     parent=self.root
                 ))
                 self.root.after(0, progress_dialog.destroy)
@@ -1900,21 +1272,6 @@ class CaiInstallGUI:
         # 启动下载线程
         download_thread = threading.Thread(target=download_and_update, daemon=True)
         download_thread.start()
-
-    def launch_updater(self, exe_path):
-        """启动更新程序并退出当前应用"""
-        try:
-            # 显示提示
-            messagebox.showinfo("准备更新", "更新文件已下载完成，即将安装新版本。应用程序将关闭。")
-            
-            # 启动更新程序
-            subprocess.Popen([exe_path])
-            
-            # 退出当前应用
-            self.on_closing()
-        except Exception as e:
-            self.log.error(f"启动更新程序失败: {str(e)}")
-            messagebox.showerror("启动失败", f"无法启动更新程序，请手动运行:\n{exe_path}")
 
     def run(self):
         """运行应用程序"""
@@ -1927,7 +1284,6 @@ class ManualSelectionDialog(tk.Toplevel):
         self.title(title or "选择解锁工具")
         self.result = None
         
-        # 设置窗口大小
         self.geometry("400x200")
         
         # 居中显示
@@ -1954,13 +1310,12 @@ class ManualSelectionDialog(tk.Toplevel):
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, pady=(10, 0))
         
-        steamtools_btn = ModernButton(button_frame, 
+        steamtools_btn = ttk.Button(button_frame, 
                                      text="我是 SteamTools 用户",
-                                     command=lambda: self.ok("steamtools"),
-                                     style='Accent.TButton')
+                                     command=lambda: self.ok("steamtools"))
         steamtools_btn.pack(fill=tk.X, pady=(0, 10))
         
-        greenluma_btn = ModernButton(button_frame, 
+        greenluma_btn = ttk.Button(button_frame, 
                                     text="我是 GreenLuma 用户",
                                     command=lambda: self.ok("greenluma"))
         greenluma_btn.pack(fill=tk.X)
@@ -1983,4 +1338,3 @@ if __name__ == '__main__':
     # 创建并运行应用
     app = CaiInstallGUI()
     app.run()
-    
