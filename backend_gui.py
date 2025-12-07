@@ -10,51 +10,40 @@ import struct
 import zlib
 import time
 from pathlib import Path
-from typing import Tuple, List, Dict, Literal, Optional, Any
-from datetime import datetime
+from typing import Tuple, List, Dict, Optional, Any
 import logging
 
-# 延迟导入以提供更好的错误信息
+# 延迟导入依赖库
 try:
     import aiofiles
-except ImportError as e:
-    raise ImportError("aiofiles 库未安装。请使用 'pip install aiofiles' 安装。") from e
-
-try:
     import httpx
+    import vdf
 except ImportError as e:
-    raise ImportError("httpx 库未安装。请使用 'pip install httpx' 安装。") from e
+    raise ImportError(f"缺少依赖库: {e}. 请使用 'pip install aiofiles httpx vdf' 安装。")
 
 try:
     import winreg
 except ImportError:
     winreg = None  # 非Windows系统
 
-try:
-    import vdf
-except ImportError as e:
-    raise ImportError("vdf 库未安装。请使用 'pip install vdf' 安装。") from e
-
+# 默认配置
 DEFAULT_CONFIG = {
     "Github_Personal_Token": "",
     "Custom_Steam_Path": "",
     "steamtools_only_lua": False,
     "auto_restart_steam": True,
-    "QA1": "温馨提示: Github_Personal_Token(个人访问令牌)可在Github设置的最底下开发者选项中找到, 详情请看教程。",
-    "QA2": "温馨提示: 勾选'使用SteamTools进行清单更新'后，对于ST用户，程序将仅下载和更新LUA脚本，而不再下载清单文件(.manifest)。"
+    "QA1": "提示: GitHub个人访问令牌可在设置->开发者选项中创建",
+    "QA2": "提示: SteamTools自动更新模式仅下载LUA脚本，不下载清单文件"
 }
 
 def get_app_dir() -> Path:
-    """获取应用程序目录，支持多种运行方式"""
+    """获取应用程序目录"""
     if getattr(sys, '_MEIPASS', None):  # PyInstaller打包
-        app_dir = Path(sys.executable).resolve().parent
-    elif '__compiled__' in globals():  # Nuitka打包
-        app_dir = Path(sys.argv[0]).resolve().parent
+        return Path(sys.executable).resolve().parent
     elif getattr(sys, 'frozen', False):  # 其他打包方式
-        app_dir = Path(sys.executable).resolve().parent
+        return Path(sys.executable).resolve().parent
     else:  # 源码运行
-        app_dir = Path(__file__).resolve().parent
-    return app_dir
+        return Path(__file__).resolve().parent
 
 app_dir = get_app_dir()
 
@@ -102,7 +91,7 @@ class STConverter:
             return content_str, metadata
             
         except (struct.error, zlib.error, UnicodeDecodeError) as e:
-            raise ValueError(f"ST文件解析失败: {e}") from e
+            raise ValueError(f"ST文件解析失败: {e}")
 
 class GuiBackend:
     """GUI后端处理类"""
@@ -163,7 +152,7 @@ class GuiBackend:
             self.log.info('配置文件已生成，请在"设置"中填写。')
             
         except Exception as e:
-            self.log.error(f'配置文件生成失败: 路径={config_path}, 错误={self.stack_error(e)}')
+            self.log.error(f'配置文件生成失败: {config_path}, 错误={self.stack_error(e)}')
     
     def save_config(self) -> bool:
         """保存配置文件"""
@@ -183,7 +172,7 @@ class GuiBackend:
             return True
             
         except Exception as e:
-            self.log.error(f'保存配置失败: 路径={config_path}, 错误={self.stack_error(e)}')
+            self.log.error(f'保存配置失败: {config_path}, 错误={self.stack_error(e)}')
             return False
     
     def detect_steam_path(self) -> Path:
@@ -237,7 +226,7 @@ class GuiBackend:
             self.steam_path = Path()
             return self.steam_path
     
-    def detect_unlocker(self) -> Literal["steamtools", "greenluma", "conflict", "none"]:
+    def detect_unlocker(self) -> str:
         """检测解锁工具类型"""
         if not self.steam_path.exists():
             return "none"
@@ -282,9 +271,7 @@ class GuiBackend:
             self._client_cache = httpx.AsyncClient(
                 timeout=30.0,
                 follow_redirects=True,
-                headers={
-                    'User-Agent': 'Cai-Installer-GUI/1.0'
-                }
+                headers={'User-Agent': 'Cai-Installer-GUI/1.0'}
             )
         return self._client_cache
     
@@ -322,7 +309,7 @@ class GuiBackend:
             return False
     
     async def checkcn(self, client: Optional[httpx.AsyncClient] = None) -> None:
-        """ 检测是否在中国大陆 """
+        """检测是否在中国大陆"""
         temp_client = None
         current_region = None
         
@@ -333,39 +320,18 @@ class GuiBackend:
             else:
                 client_to_use = client
             
+            # 地理位置检测API
             check_apis = [
-                # API 1: 酷狗API
-                {
-                    "url": "https://mips.kugou.com/check/iscn?format=json",
-                    "parser": lambda data: ("cn" if data.get('flag', False) else 
-                                        f"not_cn_{data.get('country', 'Unknown')}")
-                },
-                
-                # API 2: IP.SB
-                {
-                    "url": "https://api.ip.sb/geoip",
-                    "parser": lambda data: ("cn" if data.get('country_code') == 'CN' else 
-                                        f"not_cn_{data.get('country', 'Unknown')}")
-                },
-                
-                # API 3: IPAPI.co
-                {
-                    "url": "https://ipapi.co/json/",
-                    "parser": lambda data: ("cn" if data.get('country') == 'CN' else 
-                                        f"not_cn_{data.get('country_name', 'Unknown')}")
-                }
+                {"url": "https://mips.kugou.com/check/iscn?format=json", "parser": lambda data: "cn" if data.get('flag', False) else f"not_cn_{data.get('country', 'Unknown')}"},
+                {"url": "https://api.ip.sb/geoip", "parser": lambda data: "cn" if data.get('country_code') == 'CN' else f"not_cn_{data.get('country', 'Unknown')}"},
+                {"url": "https://ipapi.co/json/", "parser": lambda data: "cn" if data.get('country') == 'CN' else f"not_cn_{data.get('country_name', 'Unknown')}"}
             ]
             
-            # 尝试每个API，使用第一个成功的
+            # 尝试每个API
             for api_info in check_apis:
                 try:
                     self.log.debug(f"尝试地理位置API: {api_info['url'].split('/')[2]}")
-                    
-                    r = await client_to_use.get(
-                        api_info['url'], 
-                        timeout=5,
-                        follow_redirects=True
-                    )
+                    r = await client_to_use.get(api_info['url'], timeout=5, follow_redirects=True)
                     
                     if r.status_code == 200:
                         data = r.json()
@@ -373,63 +339,40 @@ class GuiBackend:
                         
                         if result:
                             current_region = result
-                            break  # 成功获取，跳出循环
-                        else:
-                            self.log.debug(f"  → API返回无效数据 (来源: {api_info['url'].split('/')[2]})")
-                    else:
-                        self.log.debug(f"  → API请求失败: 状态码 {r.status_code} (来源: {api_info['url'].split('/')[2]})")
-                        
-                except (httpx.TimeoutException, httpx.RequestError) as e:
-                    self.log.debug(f"  → 连接超时或网络错误: {type(e).__name__} (来源: {api_info['url'].split('/')[2]})")
-                    continue
-                except json.JSONDecodeError as e:
-                    self.log.debug(f"  → JSON解析失败 (来源: {api_info['url'].split('/')[2]})")
-                    continue
-                except Exception as e:
-                    self.log.debug(f"  → 未知错误: {e} (来源: {api_info['url'].split('/')[2]})")
+                            break
+                except Exception:
                     continue
             
             # 处理检测结果
             if current_region is None:
-                # 所有检测都失败，默认使用镜像
                 current_region = 'cn'
                 if self.last_detected_region != current_region:
                     self.log.warning('所有地理位置API均失败，默认使用国内镜像')
             else:
-                # 成功检测到地理位置
                 if current_region == 'cn':
                     if current_region != self.last_detected_region:
                         self.log.info("检测到中国大陆地区，使用镜像源")
                 elif current_region.startswith('not_cn_'):
                     country = current_region.replace('not_cn_', '')
-                    if country == 'Unknown':
-                        if current_region != self.last_detected_region:
-                            self.log.info("检测到非中国大陆地区\n使用GitHub源")
-                    else:
-                        if current_region != self.last_detected_region:
-                            self.log.info(f"检测到非中国大陆地区\n您的IP归属地为{country}\n使用GitHub源")
+                    if current_region != self.last_detected_region:
+                        if country == 'Unknown':
+                            self.log.info("检测到非中国大陆地区，使用GitHub源")
+                        else:
+                            self.log.info(f"检测到非中国大陆地区，IP归属地{country}，使用GitHub源")
             
-            # 只有在地区发生变化时才更新环境变量
+            # 设置环境变量
             if current_region != self.last_detected_region:
                 self.last_detected_region = current_region
-                
-                # 设置环境变量
-                is_cn = 'yes' if current_region == 'cn' else 'no'
-                os.environ['IS_CN'] = is_cn
-                
-            else:
-                # 如果地区没有变化，保持现有环境变量
-                if 'IS_CN' not in os.environ:
-                    os.environ['IS_CN'] = 'yes' if current_region == 'cn' else 'no'
+                os.environ['IS_CN'] = 'yes' if current_region == 'cn' else 'no'
+            elif 'IS_CN' not in os.environ:
+                os.environ['IS_CN'] = 'yes' if current_region == 'cn' else 'no'
                     
         except Exception as e:
-            # 只有在之前没有记录过地区时才输出错误日志
             if self.last_detected_region is None:
                 self.log.warning(f'地理位置检测异常: {e}，默认使用国内镜像')
             else:
                 self.log.warning(f'地理位置检测异常: {e}，保持之前的设置')
             
-            # 确保环境变量被设置
             if 'IS_CN' not in os.environ:
                 os.environ['IS_CN'] = 'yes'
             if self.last_detected_region is None:
@@ -449,9 +392,9 @@ class GuiBackend:
             if status_code == 404:
                 self.log.error(f"404 Not Found: {url}")
             elif status_code == 403:
-                self.log.error("403 Forbidden: GitHub API速率限制，请在设置中添加Token或稍后再试。")
+                self.log.error("403 Forbidden: GitHub API速率限制")
             elif status_code == 429:
-                self.log.error("429 Too Many Requests: API请求过多，请稍后再试。")
+                self.log.error("429 Too Many Requests: API请求过多")
             else:
                 self.log.error(f"HTTP错误 {status_code}: {url}")
             return None
@@ -479,7 +422,6 @@ class GuiBackend:
                     return r.content
                 else:
                     self.log.warning(f"下载失败 (状态码 {r.status_code}) from {url.split('/')[2]}")
-                    
             except Exception as e:
                 last_error = e
                 self.log.warning(f"下载时连接错误 from {url.split('/')[2]}: {e}")
@@ -612,7 +554,7 @@ class GuiBackend:
                     self.log.error(f"下载/处理文件时出错: {res}")
                     continue
                 if res:
-                    collected_depots.extend(res) # type: ignore
+                    collected_depots.extend(res)
             
             if not collected_depots:
                 self.log.error(f'未能收集到任何密钥信息: {app_id}')
@@ -1043,7 +985,7 @@ class GuiBackend:
         try:
             self.log.info(f"搜索游戏: '{game_name}'")
             
-            # 尝试多个搜索源
+            # 尝试Steam商店搜索
             games = await self._search_steam_store(client, game_name)
             
             if not games:
@@ -1122,7 +1064,6 @@ class GuiBackend:
             headers = self.get_github_headers()
             
             async with httpx.AsyncClient() as client:
-                # 检查网络环境
                 await self.checkcn(client)
                 
                 # 获取最新发布信息
@@ -1167,20 +1108,16 @@ class GuiBackend:
     def is_newer_version(self, latest: str, current: str) -> bool:
         """比较版本号"""
         try:
-            # 清理版本号
             latest_clean = latest.lstrip('v').strip()
             current_clean = current.lstrip('v').strip()
             
-            # 分割版本号
             latest_parts = list(map(int, latest_clean.split('.')))
             current_parts = list(map(int, current_clean.split('.')))
             
-            # 标准化长度
             max_len = max(len(latest_parts), len(current_parts))
             latest_parts += [0] * (max_len - len(latest_parts))
             current_parts += [0] * (max_len - len(current_parts))
             
-            # 比较
             return latest_parts > current_parts
             
         except Exception as e:
@@ -1192,7 +1129,6 @@ class GuiBackend:
         if not github_url:
             return ""
         
-        # 常用镜像源
         mirrors = [
             f'https://ghfast.top/{github_url}',
             f'https://wget.la/{github_url}'
@@ -1201,7 +1137,7 @@ class GuiBackend:
         return mirrors[0] if mirrors else ""
     
     async def download_update_direct(self, url: str, dest_path: str, progress_callback=None) -> bool:
-        """直接下载更新文件（带进度回调）"""
+        """直接下载更新文件"""
         try:
             self.log.info(f"下载更新: {url}")
             
@@ -1228,9 +1164,9 @@ class GuiBackend:
                             f.write(chunk)
                             downloaded_size += len(chunk)
                             
-                            # 更新进度 - 只传递2个参数
+                            # 更新进度
                             if progress_callback and total_size > 0:
-                                progress_callback(downloaded_size, total_size)  # 只传递2个参数
+                                progress_callback(downloaded_size, total_size)
                     
                     self.log.info(f"下载完成: {dest_path} ({downloaded_size} 字节)")
                     return True
@@ -1240,33 +1176,4 @@ class GuiBackend:
             return False
         except Exception as e:
             self.log.error(f"下载失败: {self.stack_error(e)}")
-            return False
-        finally:
-            # 清理空文件
-            if os.path.exists(dest_path) and os.path.getsize(dest_path) == 0:
-                try:
-                    os.remove(dest_path)
-                except:
-                    pass
-    
-    async def download_update_with_mirror(self, url: str, dest_path: str, 
-                                        progress_callback=None) -> bool:
-        """使用镜像下载更新"""
-        try:
-            # 如果在中国大陆，尝试镜像
-            if os.environ.get('IS_CN') == 'yes':
-                mirror_url = self.convert_github_to_mirror(url)
-                if mirror_url:
-                    self.log.info(f"尝试镜像下载: {mirror_url}")
-                    
-                    if await self.download_update_direct(mirror_url, dest_path, progress_callback):
-                        return True
-                    
-                    self.log.warning("镜像下载失败，尝试原始地址...")
-            
-            # 使用原始地址
-            return await self.download_update_direct(url, dest_path, progress_callback)
-            
-        except Exception as e:
-            self.log.error(f"镜像下载失败: {self.stack_error(e)}")
             return False
