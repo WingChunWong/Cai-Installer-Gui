@@ -805,18 +805,29 @@ class CaiInstallGUI:
         self.search_button.config(state=tk.NORMAL, text="搜索")
     
     def show_game_selection_dialog(self, games):
+        """显示游戏选择对话框"""
         if not games:
             self.log.warning("未找到匹配的游戏。")
             messagebox.showinfo("未找到", "未找到与搜索词匹配的游戏。", parent=self.root)
             return
         
         dialog = GameSelectionDialog(self.root, games=games)
+        
+        # 等待对话框关闭
+        self.root.wait_window(dialog)
+        
         if dialog.result:
             selected_game = dialog.result
             self.appid_entry.delete(0, tk.END)
             self.appid_entry.insert(0, selected_game['appid'])
             name = selected_game.get("schinese_name") or selected_game.get("name", "N/A")
             self.log.info(f"已选择游戏: {name} (AppID: {selected_game['appid']})")
+            
+            # 自动开始处理（不询问）
+            self.log.info("自动开始处理...")
+            
+            # 添加短暂延迟以确保UI更新完成
+            self.root.after(100, self.start_processing)
 
     def start_processing(self):
         if not self.backend.unlocker_type:
