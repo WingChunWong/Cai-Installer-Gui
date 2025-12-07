@@ -906,7 +906,7 @@ class GuiBackend:
                 shutil.rmtree(self.temp_dir, ignore_errors=True)
     
     async def process_from_specific_repo(self, client: httpx.AsyncClient, inputs: List[str], 
-                                       repo_val: str) -> bool:
+                                    repo_val: str) -> bool:
         """处理特定仓库"""
         app_ids = await self.resolve_appids(inputs)
         
@@ -925,39 +925,51 @@ class GuiBackend:
                 return False
         
         success_count = 0
+        
+        # 定义仓库URL映射函数
+        def get_repo_config(repo_name: str, app_id: str):
+            """获取仓库配置"""
+            configs = {
+                "swa": {
+                    "url": f'https://api.printedwaste.com/gfk/download/{app_id}',
+                    "source_name": "SWA V2"
+                },
+                "cysaw": {
+                    "url": f'https://cysaw.top/uploads/{app_id}.zip',
+                    "source_name": "Cysaw"
+                },
+                "furcate": {
+                    "url": f'https://furcate.eu/files/{app_id}.zip',
+                    "source_name": "Furcate"
+                },
+                "cngs": {
+                    "url": f'https://assiw.cngames.site/qindan/{app_id}.zip',
+                    "source_name": "CNGS"
+                },
+                "steamdatabase": {
+                    "url": f'https://steamdatabase.s3.eu-north-1.amazonaws.com/{app_id}.zip',
+                    "source_name": "SteamDatabase"
+                },
+                "walftech": {
+                    "url": f'https://walftech.com/proxy.php?url=https%3A%2F%2Fsteamgames554.s3.us-east-1.amazonaws.com%2F{app_id}.zip',
+                    "source_name": "Walftech"
+                }
+            }
+            return configs.get(repo_name)
+        
         for app_id in app_ids:
             self.log.info(f"--- 正在处理 App ID: {app_id} ---")
             success = False
             
             # 根据仓库类型处理
-            if repo_val == "swa":
+            repo_config = get_repo_config(repo_val, app_id)
+            if repo_config:
+                # ZIP仓库处理
                 success = await self._process_zip_based_manifest(
-                    client, app_id, f'https://api.printedwaste.com/gfk/download/{app_id}', "SWA V2"
-                )
-            elif repo_val == "cysaw":
-                success = await self._process_zip_based_manifest(
-                    client, app_id, f'https://cysaw.top/uploads/{app_id}.zip', "Cysaw"
-                )
-            elif repo_val == "furcate":
-                success = await self._process_zip_based_manifest(
-                    client, app_id, f'https://furcate.eu/files/{app_id}.zip', "Furcate"
-                )
-            elif repo_val == "cngs":
-                success = await self._process_zip_based_manifest(
-                    client, app_id, f'https://assiw.cngames.site/qindan/{app_id}.zip', "CNGS"
-                )
-            elif repo_val == "steamdatabase":
-                success = await self._process_zip_based_manifest(
-                    client, app_id, f'https://steamdatabase.s3.eu-north-1.amazonaws.com/{app_id}.zip', 
-                    "SteamDatabase"
-                )
-            elif repo_val == "walftech":
-                success = await self._process_zip_based_manifest(
-                    client, app_id, 
-                    f'https://walftech.com/proxy.php?url=https%3A%2F%2Fsteamgames554.s3.us-east-1.amazonaws.com%2F{app_id}.zip', 
-                    "Walftech"
+                    client, app_id, repo_config["url"], repo_config["source_name"]
                 )
             else:
+                # GitHub仓库处理
                 success = await self.process_github_repo(client, app_id, repo_val)
             
             if success:
@@ -967,6 +979,7 @@ class GuiBackend:
                 self.log.error(f"App ID: {app_id} 处理失败。")
         
         return success_count > 0
+
     
     async def cleanup_temp_files(self) -> None:
         """清理临时文件"""
