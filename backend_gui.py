@@ -581,11 +581,16 @@ class GuiBackend:
             
             collected_depots = []
             for res in results:
+                # 如果是异常，记录错误并继续
                 if isinstance(res, Exception):
                     self.log.error(f"下载/处理文件时出错: {res}")
                     continue
-                if res:
+                
+                # 确保 res 是列表类型（来自 get_manifest_from_github 的返回值）
+                if isinstance(res, list):
                     collected_depots.extend(res)
+                elif res:  # 如果 res 不是列表也不是None，可能有问题
+                    self.log.warning(f"忽略非列表类型的返回结果: {type(res)}")
             
             if not collected_depots:
                 self.log.error(f'未能收集到任何密钥信息: {app_id}')
@@ -599,7 +604,7 @@ class GuiBackend:
                 await self.greenluma_add(depot_ids)
                 
                 depot_config = {'depots': {depot_id: {'DecryptionKey': key} 
-                                         for depot_id, key in collected_depots}}
+                                        for depot_id, key in collected_depots}}
                 await self.depotkey_merge(depot_config)
             
             self.log.info(f'清单最后更新时间: {date}')
