@@ -31,9 +31,7 @@ DEFAULT_CONFIG = {
     "Github_Personal_Token": "",
     "Custom_Steam_Path": "",
     "steamtools_only_lua": False,
-    "auto_restart_steam": True,
-    "QA1": "提示: GitHub个人访问令牌可在设置->开发者选项中创建",
-    "QA2": "提示: SteamTools自动更新模式仅下载LUA脚本，不下载清单文件"
+    "auto_restart_steam": True
 }
 
 def get_app_dir() -> Path:
@@ -106,6 +104,7 @@ class GuiBackend:
         self.st_lock_manifest_version = False
         self._client_cache: Optional[httpx.AsyncClient] = None
         self.last_detected_region: Optional[str] = None
+        self.current_country: Optional[str] = None
     
     def stack_error(self, e: Exception) -> str:
         """获取完整的异常堆栈信息"""
@@ -312,6 +311,7 @@ class GuiBackend:
         """检测是否在中国大陆"""
         temp_client = None
         current_region = None
+        current_country = None
         
         try:
             if client is None:
@@ -322,9 +322,14 @@ class GuiBackend:
             
             # 地理位置检测API
             check_apis = [
-                {"url": "https://mips.kugou.com/check/iscn?format=json", "parser": lambda data: "cn" if data.get('flag', False) else f"not_cn_{data.get('country', 'Unknown')}"},
-                {"url": "https://api.ip.sb/geoip", "parser": lambda data: "cn" if data.get('country_code') == 'CN' else f"not_cn_{data.get('country', 'Unknown')}"},
-                {"url": "https://ipapi.co/json/", "parser": lambda data: "cn" if data.get('country') == 'CN' else f"not_cn_{data.get('country_name', 'Unknown')}"}
+                {"url": "https://mips.kugou.com/check/iscn?format=json", 
+                 "parser": lambda data: ("cn", "CN") if data.get('flag', False) else 
+                                        (f"not_cn_{data.get('country', 'Unknown')}", 
+                                         data.get('country', 'Unknown'))},
+                {"url": "https://api.ip.sb/geoip", 
+                 "parser": lambda data: ("cn", "CN") if data.get('country_code') == 'CN' else 
+                                        (f"not_cn_{data.get('country', 'Unknown')}", 
+                                         data.get('country', 'Unknown'))},
             ]
             
             # 尝试每个API
@@ -335,10 +340,11 @@ class GuiBackend:
                     
                     if r.status_code == 200:
                         data = r.json()
-                        result = api_info['parser'](data)
+                        region_result, country_result = api_info['parser'](data)
                         
-                        if result:
-                            current_region = result
+                        if region_result and country_result:
+                            current_region = region_result
+                            current_country = country_result
                             break
                 except Exception:
                     continue
@@ -346,40 +352,65 @@ class GuiBackend:
             # 处理检测结果
             if current_region is None:
                 current_region = 'cn'
+                current_country = 'CN'
                 if self.last_detected_region != current_region:
                     self.log.warning('所有地理位置API均失败，默认使用国内镜像')
-            else:
-                if current_region == 'cn':
-                    if current_region != self.last_detected_region:
-                        self.log.info("检测到中国大陆地区，使用镜像源")
-                elif current_region.startswith('not_cn_'):
-                    country = current_region.replace('not_cn_', '')
-                    if current_region != self.last_detected_region:
-                        if country == 'Unknown':
-                            self.log.info("检测到非中国大陆地区，使用GitHub源")
-                        else:
-                            self.log.info(f"检测到非中国大陆地区，IP归属地{country}，使用GitHub源")
             
-            # 设置环境变量
+            # 统一格式：所有地区都显示IP归属地
+            if current_region != self.last_detected_region:
+                if current_region == 'cn':
+                    self.log.info(f"IP归属地为{current_country}\n将会使用镜像源")
+                else:
+                    if current_country == 'Unknown':
+                        self.log.info(f"检测到非中国大陆地区\n将会使用GitHub源")
+                    else:
+                        self.log.info(f"IP归属地为{current_country}\n将会使用GitHub源")
+            
+            # 更新存储的信息
             if current_region != self.last_detected_region:
                 self.last_detected_region = current_region
+                self.current_country = current_country
                 os.environ['IS_CN'] = 'yes' if current_region == 'cn' else 'no'
             elif 'IS_CN' not in os.environ:
                 os.environ['IS_CN'] = 'yes' if current_region == 'cn' else 'no'
+            
+            # 确保current_country有值
+            if self.current_country is None:
+                self.current_country = current_country or ('CN' if current_region == 'cn' else 'Unknown')
                     
         except Exception as e:
             if self.last_detected_region is None:
                 self.log.warning(f'地理位置检测异常: {e}，默认使用国内镜像')
+                current_region = 'cn'
+                current_country = 'CN'
             else:
                 self.log.warning(f'地理位置检测异常: {e}，保持之前的设置')
             
+            # 设置环境变量
             if 'IS_CN' not in os.environ:
-                os.environ['IS_CN'] = 'yes'
+                os.environ['IS_CN'] = 'yes' if current_region == 'cn' else 'no'
             if self.last_detected_region is None:
-                self.last_detected_region = 'cn'
+                self.last_detected_region = current_region
+                self.current_country = current_country
+            elif self.current_country is None:
+                self.current_country = 'CN' if current_region == 'cn' else 'Unknown'
         finally:
             if temp_client:
                 await temp_client.aclose()
+    
+    def get_current_country(self) -> str:
+        """获取当前检测到的国家代码"""
+        if self.current_country:
+            return self.current_country
+        elif self.last_detected_region:
+            if self.last_detected_region == 'cn':
+                return 'CN'
+            elif self.last_detected_region.startswith('not_cn_'):
+                # 从region中提取国家信息
+                country_from_region = self.last_detected_region.replace('not_cn_', '')
+                return country_from_region
+        
+        return 'Unknown'
     
     async def fetch_branch_info(self, client: httpx.AsyncClient, url: str, headers: dict) -> Optional[Dict[str, Any]]:
         """获取分支信息"""
