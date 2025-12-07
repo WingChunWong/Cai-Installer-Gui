@@ -515,7 +515,6 @@ class CaiInstallGUI:
             ("CNGS (assiw)", "cngs"),
             ("SteamDatabase", "steamdatabase"), 
             ("Walftech", "walftech"),
-            ("GitHub - Auiowu/ManifestAutoUpdate", "Auiowu/ManifestAutoUpdate"),
             ("GitHub - SteamAutoCracks/ManifestHub", "SteamAutoCracks/ManifestHub"),
         ]
         
