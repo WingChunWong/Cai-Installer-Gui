@@ -19,23 +19,12 @@ jobs:
           fetch-depth: 0 # 确保获取完整的历史和标签
           persist-credentials: true # 保留凭据用于后续提交
 
-      - name: Cache Python tools
-        uses: actions/cache@v4
-        with:
-          path: |
-            C:\hostedtoolcache\windows\Python\*
-            C:\hostedtoolcache\windows\PyPy\*
-          # 更精确的路径匹配，避免递归匹配带来的哈希不一致
-          key: ${{ runner.os }}-python-tools-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-python-tools-
-
       - name: Cache pip packages
         uses: actions/cache@v4
         with:
-          path: ~\AppData\Local\pip\Cache
-          # 同样使用精确路径
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          path: 
+            %LocalAppData%\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
