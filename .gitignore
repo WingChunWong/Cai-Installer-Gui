@@ -9,3 +9,4 @@ frontend_gui.onefile-build
 frontend_gui.exe
 Cai-Installer-Gui.exe
 .vscode/
+config.json.bak
