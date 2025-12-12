@@ -78,6 +78,7 @@ jobs:
           --include-module=version `
           --assume-yes-for-downloads `
           --follow-imports `
+          -o Cai-Installer-Gui `
           frontend_gui.py
         shell: pwsh
 
