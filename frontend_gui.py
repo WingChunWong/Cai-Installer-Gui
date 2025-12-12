@@ -946,6 +946,19 @@ class CaiInstallGUI:
         token_entry = ttk.Entry(main_frame, width=40)
         token_entry.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(0, 15))
         token_entry.insert(0, self.backend.app_config.get("Github_Personal_Token", ""))
+
+        # 在 Token 输入框后添加验证按钮
+        token_frame = ttk.Frame(main_frame)
+        token_frame.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(0, 15))
+        
+        token_entry = ttk.Entry(token_frame, width=35)
+        token_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        token_entry.insert(0, self.backend.app_config.get("Github_Personal_Token", ""))
+        
+        # 验证按钮
+        validate_btn = ttk.Button(token_frame, text="验证", width=8,
+                                command=lambda: self.validate_github_token(token_entry.get()))
+        validate_btn.pack(side=tk.RIGHT)
         
         # Steam路径
         ttk.Label(main_frame, text="自定义Steam路径:", 
@@ -998,6 +1011,33 @@ class CaiInstallGUI:
         
         cancel_btn = ttk.Button(button_frame, text="取消", command=dialog.destroy)
         cancel_btn.pack(side=tk.RIGHT)
+    
+    def validate_github_token(self, token: str):
+        """验证 GitHub Token"""
+        def validate_async():
+            async def validate():
+                async with httpx.AsyncClient() as client:
+                    headers = {'Authorization': f'token {token}'} if token else {}
+                    try:
+                        r = await client.get('https://api.github.com/rate_limit', headers=headers)
+                        if r.status_code == 200:
+                            data = r.json()
+                            limit = data['resources']['core']['limit']
+                            remaining = data['resources']['core']['remaining']
+                            self.root.after(0, lambda: messagebox.showinfo("验证成功", 
+                                f"GitHub Token 有效！\n\nAPI 限制: {limit}\n剩余次数: {remaining}"))
+                        elif r.status_code == 401:
+                            self.root.after(0, lambda: messagebox.showerror("验证失败", 
+                                "GitHub Token 无效或已过期"))
+                        else:
+                            self.root.after(0, lambda: messagebox.showerror("验证失败", 
+                                f"HTTP {r.status_code}: {r.text[:100]}"))
+                    except Exception as e:
+                        self.root.after(0, lambda: messagebox.showerror("验证失败", f"错误: {e}"))
+            
+            asyncio.run(validate())
+        
+        threading.Thread(target=validate_async, daemon=True).start()
 
     def browse_steam_path(self, entry_widget):
         """浏览Steam安装路径"""
