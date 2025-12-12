@@ -82,19 +82,6 @@ jobs:
           frontend_gui.py
         shell: pwsh
 
-      - name: Clean up old build artifacts
-        run: |
-          # 删除旧的构建文件，但保留新生成的可执行文件
-          if (Test-Path "frontend_gui.onefile-build") { Remove-Item -Recurse -Force "frontend_gui.onefile-build" }
-          if (Test-Path "frontend_gui.build") { Remove-Item -Recurse -Force "frontend_gui.build" }
-          # 重命名可执行文件
-          if (Test-Path "frontend_gui.exe") { 
-            Move-Item "frontend_gui.exe" "Cai-Installer-Gui.exe"
-          }
-          # 清理dist目录（如果需要）
-          if (Test-Path "frontend_gui.dist") { Remove-Item -Recurse -Force "frontend_gui.dist" }
-        shell: pwsh
-
       - name: Upload Artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
