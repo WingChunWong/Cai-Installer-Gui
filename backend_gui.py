@@ -415,24 +415,39 @@ class GuiBackend:
     async def fetch_branch_info(self, client: httpx.AsyncClient, url: str, headers: dict) -> Optional[Dict[str, Any]]:
         """获取分支信息"""
         try:
+            self.log.debug(f"请求 GitHub API: {url}")
             r = await client.get(url, headers=headers)
+            
+            if r.status_code == 401:
+                self.log.error(f"401 Unauthorized: {url}")
+                self.log.error("GitHub Token 无效或过期")
+                return None
+            elif r.status_code == 404:
+                self.log.error(f"404 Not Found: {url}")
+                return None
+            elif r.status_code == 403:
+                # 检查是否是速率限制
+                if 'X-RateLimit-Remaining' in r.headers:
+                    remaining = r.headers.get('X-RateLimit-Remaining', '0')
+                    limit = r.headers.get('X-RateLimit-Limit', '60')
+                    self.log.error(f"403 Forbidden: GitHub API速率限制 (剩余 {remaining}/{limit})")
+                else:
+                    self.log.error(f"403 Forbidden: {url}")
+                return None
+            
             r.raise_for_status()
             return r.json()
+            
         except httpx.HTTPStatusError as e:
             status_code = e.response.status_code
-            if status_code == 404:
-                self.log.error(f"404 Not Found: {url}")
-            elif status_code == 403:
-                self.log.error("403 Forbidden: GitHub API速率限制")
-            elif status_code == 429:
+            self.log.error(f"HTTP错误 {status_code}: {url}")
+            if status_code == 429:
                 self.log.error("429 Too Many Requests: API请求过多")
-            else:
-                self.log.error(f"HTTP错误 {status_code}: {url}")
             return None
         except Exception as e:
             self.log.error(f'获取信息失败: {self.stack_error(e)}')
             return None
-    
+        
     async def get_from_url(self, client: httpx.AsyncClient, sha: str, path: str, repo: str) -> bytes:
         """从URL下载内容"""
         if os.environ.get('IS_CN') == 'yes':
@@ -1039,9 +1054,6 @@ class GuiBackend:
             # 尝试Steam商店搜索
             games = await self._search_steam_store(client, game_name)
             
-            if not games:
-                games = await self._search_steamspy(client, game_name)
-            
             self.log.info(f"找到 {len(games)} 个匹配的游戏。")
             return games[:20]  # 限制返回数量
             
@@ -1074,33 +1086,6 @@ class GuiBackend:
                     'appid': item['id'],
                     'name': item['name'],
                     'schinese_name': item['name'],
-                    'type': 'Game'
-                })
-            
-            return games
-            
-        except Exception:
-            return []
-    
-    async def _search_steamspy(self, client: httpx.AsyncClient, game_name: str) -> List[Dict[str, Any]]:
-        """备用搜索方案：SteamSpy"""
-        try:
-            url = 'https://steamspy.com/api.php'
-            params = {'request': 'search', 'search': game_name}
-            
-            r = await client.get(url, params=params, timeout=30)
-            
-            if r.status_code != 200:
-                return []
-            
-            data = r.json()
-            games = []
-            
-            for appid, game_info in list(data.items())[:20]:
-                games.append({
-                    'appid': int(appid),
-                    'name': game_info.get('name', ''),
-                    'schinese_name': game_info.get('name', ''),
                     'type': 'Game'
                 })
             
