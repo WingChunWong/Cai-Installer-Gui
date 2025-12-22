@@ -28,7 +28,12 @@ jobs:
       - name: Get pip cache dir
         id: pip-cache-dir
         run: |
-          python -m pip cache dir
+          echo "dir=$(python -m pip cache dir)" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Debug pip cache dir
+        run: |
+          echo "Pip cache directory: ${{ steps.pip-cache-dir.outputs.dir }}"
         shell: bash
 
       - name: Cache pip packages
