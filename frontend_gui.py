@@ -1445,7 +1445,7 @@ class ManualSelectionDialog(tk.Toplevel):
         self.destroy()
 
 if __name__ == '__main__':
-    # 启用DPI感知（仅Windows）
+    # 启用DPI感知
     if sys.platform == 'win32':
         try:
             from ctypes import windll
