@@ -1074,7 +1074,7 @@ class GuiBackend:
             games = await self._search_steam_store(client, game_name)
             
             self.log.info(f"找到 {len(games)} 个匹配的游戏。")
-            return games[:20]  # 限制返回数量
+            return games
             
         except Exception as e:
             self.log.error(f"搜索游戏失败: {e}")
@@ -1083,13 +1083,51 @@ class GuiBackend:
     async def _search_steam_store(self, client: httpx.AsyncClient, game_name: str) -> List[Dict[str, Any]]:
         """搜索Steam商店"""
         try:
+            games = []
+            
+            # 同时搜索国区和美区
+            cn_games = await self._search_with_region(client, game_name, 'CN')
+            us_games = await self._search_with_region(client, game_name, 'US')
+            
+            # 合并结果，去重
+            seen_ids = set()
+            
+            # 先添加国区结果
+            for game in cn_games:
+                if game['appid'] not in seen_ids:
+                    game['region'] = 'CN'
+                    games.append(game)
+                    seen_ids.add(game['appid'])
+            
+            # 再添加美区结果
+            for game in us_games:
+                if game['appid'] not in seen_ids:
+                    game['region'] = 'US'
+                    games.append(game)
+                    seen_ids.add(game['appid'])
+            
+            return games[:20]
+            
+        except Exception as e:
+            self.log.error(f"Steam商店搜索失败: {e}")
+            return []
+    
+    async def _search_with_region(self, client: httpx.AsyncClient, game_name: str, country_code: str) -> List[Dict[str, Any]]:
+        """使用指定地区搜索Steam商店"""
+        try:
             url = 'https://store.steampowered.com/api/storesearch/'
-            params = {'term': game_name, 'l': 'schinese', 'cc': 'CN'}
+            
+            # 根据地区选择语言
+            if country_code == 'CN':
+                language = 'schinese'
+            elif country_code == 'US':
+                language = 'english'
+            
+            params = {'term': game_name, 'l': language, 'cc': country_code}
             
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
                 'Accept': 'application/json',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
             }
             
             r = await client.get(url, params=params, headers=headers, timeout=15)
@@ -1101,11 +1139,15 @@ class GuiBackend:
             games = []
             
             for item in data.get('items', []):
+                if item.get('type') in ['bundle', 'sub', 'dlc']:
+                    continue
+                    
                 games.append({
                     'appid': item['id'],
                     'name': item['name'],
                     'schinese_name': item['name'],
-                    'type': 'Game'
+                    'type': item.get('type', 'Game'),
+                    'region': country_code
                 })
             
             return games
