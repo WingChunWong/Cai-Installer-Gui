@@ -25,21 +25,11 @@ jobs:
           python-version: "3.13"
           architecture: "x64"
 
-      - name: Get pip cache dir
-        id: pip-cache-dir
-        run: |
-          echo "dir=$(python -m pip cache dir)" >> $GITHUB_OUTPUT
-        shell: bash
-
-      - name: Debug pip cache dir
-        run: |
-          echo "Pip cache directory: ${{ steps.pip-cache-dir.outputs.dir }}"
-        shell: bash
-
       - name: Cache pip packages
         uses: actions/cache@v4
         with:
-          path: ${{ steps.pip-cache-dir.outputs.dir }}
+          path: |
+            ~\AppData\Local\pip\Cache
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
