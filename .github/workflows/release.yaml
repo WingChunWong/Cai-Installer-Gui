@@ -19,12 +19,23 @@ jobs:
           fetch-depth: 0 # 确保获取完整的历史和标签
           persist-credentials: true # 保留凭据用于后续提交
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          architecture: "x64"
+
+      - name: Get pip cache dir
+        id: pip-cache-dir
+        run: |
+          python -m pip cache dir
+        shell: bash
+
       - name: Cache pip packages
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          path: ${{ steps.pip-cache-dir.outputs.dir }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
@@ -46,16 +57,10 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git add version.py
-          git commit -m "🔧 chore: update version to ${{ github.ref_name }}"
-          git push origin HEAD:main
+          git commit -m "🔧 chore: update version to ${{ github.ref_name }}" || exit 0
+          git push origin HEAD:main || exit 0
         shell: bash
-        continue-on-error: true # 即使提交失败也不中断工作流（如文件无变化时）
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          architecture: "x64"
+        continue-on-error: true
 
       - name: Install Dependencies
         run: |
