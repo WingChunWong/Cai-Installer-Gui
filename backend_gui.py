@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Tuple, List, Dict, Optional, Any
 import logging
+import winreg
 
 # 延迟导入依赖库
 try:
@@ -20,11 +21,6 @@ try:
     import vdf
 except ImportError as e:
     raise ImportError(f"缺少依赖库: {e}. 请使用 'pip install aiofiles httpx vdf' 安装。")
-
-try:
-    import winreg
-except ImportError:
-    winreg = None  # 非Windows系统
 
 # 默认配置
 DEFAULT_CONFIG = {
@@ -207,27 +203,22 @@ class GuiBackend:
                     return self.steam_path
                 else:
                     self.log.warning(f"自定义Steam路径不存在: {custom_path}")
-            
-            # 自动检测（仅Windows）
-            if winreg is not None:
-                try:
-                    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Valve\Steam')
-                    steam_path_str = winreg.QueryValueEx(key, 'SteamPath')[0]
-                    self.steam_path = Path(steam_path_str).resolve()
-                    self.log.info(f"自动检测到Steam路径: {self.steam_path}")
-                    return self.steam_path
-                except (OSError, FileNotFoundError) as e:
-                    self.log.warning(f"注册表查询失败: {e}")
-            else:
-                self.log.warning("非Windows系统，无法自动检测Steam路径")
-            
-            # 尝试常见路径
-            common_paths = [
-                Path("C:/Program Files (x86)/Steam"),
-                Path("C:/Program Files/Steam"),
-                Path.home() / ".steam" / "steam",
-                Path.home() / ".local/share/Steam",
-            ]
+
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Valve\Steam')
+                steam_path_str = winreg.QueryValueEx(key, 'SteamPath')[0]
+                self.steam_path = Path(steam_path_str).resolve()
+                self.log.info(f"自动检测到Steam路径: {self.steam_path}")
+                return self.steam_path
+            except (OSError, FileNotFoundError) as e:
+                self.log.warning(f"注册表查询失败: {e}")
+
+                
+                # 尝试常见路径
+                common_paths = [
+                    Path("C:/Program Files (x86)/Steam"),
+                    Path("C:/Program Files/Steam"),
+                ]
             
             for path in common_paths:
                 if path.exists():
