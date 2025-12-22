@@ -471,10 +471,10 @@ class GuiBackend:
         """从URL下载内容"""
         if os.environ.get('IS_CN') == 'yes':
             urls = [
-                f'https://cdn.jsdelivr.net/gh/{repo}@{sha}/{path}'
-                f'https://cdn.jsdmirror.com/gh/{repo}@{sha}/{path}',
-                f'https://raw.gitmirror.com/{repo}/{sha}/{path}',
-                f'https://raw.githubuserconten.com/{repo}/{sha}/{path}'
+                f'https://cdn.jsdelivr.net/gh/{repo}@{sha}/{path}',
+                f'https://ghfast.top/https://raw.githubusercontent.com/{repo}/{sha}/{path}',
+                f'https://wget.la/https://raw.githubusercontent.com/{repo}/{sha}/{path}',
+                f'https://raw.githubusercontent.com/{repo}/{sha}/{path}'
             ]
         else:
             urls = [f'https://raw.githubusercontent.com/{repo}/{sha}/{path}']
