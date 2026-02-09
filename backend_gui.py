@@ -155,21 +155,25 @@ class GuiBackend:
     
     def gen_config_file(self) -> None:
         """生成默认配置文件"""
+        # 提前绑定变量，避免在异常处理时引用未定义的名称
+        config_path = app_dir / "config.json"
         try:
-            config_path = app_dir / "config.json"
             self.log.info(f"生成配置文件: {config_path}")
-            
+
             with open(config_path, mode="w", encoding="utf-8") as f:
                 json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
-            
+
             self.app_config = DEFAULT_CONFIG.copy()
             self.log.info('配置文件已生成，请在"设置"中填写。')
-            
+
         except Exception as e:
+            # config_path 已在函数开始处定义，可安全引用
             self.log.error(f'配置文件生成失败: {config_path}, 错误={self.stack_error(e)}')
     
     def save_config(self) -> bool:
         """保存配置文件"""
+        # 预先绑定一个安全的默认值，避免在 except 中引用未定义变量
+        config_path: Path = Path()
         try:
             config_path = app_dir / "config.json"
             self.log.info(f"保存配置文件: {config_path}")
@@ -186,6 +190,7 @@ class GuiBackend:
             return True
             
         except Exception as e:
+            # 在此处安全引用 config_path
             self.log.error(f'保存配置失败: {config_path}, 错误={self.stack_error(e)}')
             return False
     
@@ -1107,13 +1112,14 @@ class GuiBackend:
         """使用指定地区搜索Steam商店"""
         try:
             url = 'https://store.steampowered.com/api/storesearch/'
-            
-            # 根据地区选择语言
-            if country_code == 'CN':
-                language = 'schinese'
-            elif country_code == 'US':
-                language = 'english'
-            
+            # 根据地区选择语言，默认为 english
+            language_map = {
+                'CN': 'schinese',
+                'US': 'english',
+            }
+            language = language_map.get(country_code, 'english')
+
+
             params = {'term': game_name, 'l': language, 'cc': country_code}
             
             headers = {
