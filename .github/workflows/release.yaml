@@ -84,18 +84,21 @@ jobs:
 
       - name: Build Executable with Nuitka
         run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
           # 构建命令
           python -m nuitka `
           --onefile `
           --windows-console-mode=disable `
+          --product-name=Cai-Installer-Gui `
+          --product-version=$version `
           --enable-plugin=tk-inter `
           --include-package=ttkbootstrap,httpx,aiofiles,vdf `
-          --include-module=backend_gui `
+          --include-package=backend,ui,utils `
           --include-module=version `
           --assume-yes-for-downloads `
           --follow-imports `
           -o Cai-Installer-Gui `
-          frontend_gui.py
+          main.py
         shell: pwsh
 
       - name: Upload Artifacts to Release
