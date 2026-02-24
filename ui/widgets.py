@@ -85,7 +85,6 @@ class GameSelectionDialog(tk.Toplevel):
         self.result = None
         
         self.geometry("600x400")
-        self.minsize(800, 500)
         
         # 居中显示
         self.update_idletasks()
