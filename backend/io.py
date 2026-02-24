@@ -33,7 +33,7 @@ def get_app_dir():
     
     # 方案4: 普通开发环境
     else:
-        # 使用当前脚本文件所在的目录
+        # 使用项目根目录（当前脚本所在目录的父目录，例如 backend 的上一级）
         app_dir = Path(__file__).resolve().parent.parent
     
     # 返回之前，确保路径是绝对路径且标准化（处理掉 '..' 和符号链接等）
