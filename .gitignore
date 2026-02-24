@@ -1,10 +1,10 @@
 __pycache__/
 config.json
-frontend_gui.build/
-frontend_gui.dist/
+main.build/
+main.dist/
 nuitka-crash-report.xml
 .venv/
-frontend_gui.onefile-build
+main.onefile-build
 -p/
 frontend_gui.exe
 Cai-Installer-Gui.exe
